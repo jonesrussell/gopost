@@ -51,10 +51,13 @@
 		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
 	],
 	
-	"forwardPorts": [8085],
+	"forwardPorts": [8085, 6379],
 	"portsAttributes": {
 		"8085": {
 			"label": "GoPost Admin"
+		},
+		"6379": {
+			"label": "Redis"
 		}
 	},
 	
