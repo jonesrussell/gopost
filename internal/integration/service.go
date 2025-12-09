@@ -64,7 +64,7 @@ func NewService(cfg *config.Config, log logger.Logger) (*Service, error) {
 		return nil, fmt.Errorf("redis connection: %w", err)
 	}
 
-	dedupTracker := dedup.NewTracker(redisClient)
+	dedupTracker := dedup.NewTracker(redisClient, log)
 
 	// Initialize rate limiter
 	limiter := rate.NewLimiter(rate.Limit(cfg.Service.RateLimitRPS), cfg.Service.RateLimitRPS)
