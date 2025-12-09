@@ -26,7 +26,9 @@ type ElasticsearchConfig struct {
 
 type DrupalConfig struct {
 	URL           string `yaml:"url"`
-	Token         string `yaml:"token"`
+	Username      string `yaml:"username"`        // Username for REST API Authentication
+	Token         string `yaml:"token"`           // API key/token for authentication
+	AuthMethod    string `yaml:"auth_method"`     // AUTH-METHOD header value (application ID)
 	SkipTLSVerify bool   `yaml:"skip_tls_verify"` // Skip TLS certificate verification (development only)
 }
 
@@ -97,8 +99,14 @@ func Load(path string) (*Config, error) {
 	if drupalURL := os.Getenv("DRUPAL_URL"); drupalURL != "" {
 		cfg.Drupal.URL = drupalURL
 	}
+	if drupalUsername := os.Getenv("DRUPAL_USERNAME"); drupalUsername != "" {
+		cfg.Drupal.Username = drupalUsername
+	}
 	if drupalToken := os.Getenv("DRUPAL_TOKEN"); drupalToken != "" {
 		cfg.Drupal.Token = drupalToken
+	}
+	if drupalAuthMethod := os.Getenv("DRUPAL_AUTH_METHOD"); drupalAuthMethod != "" {
+		cfg.Drupal.AuthMethod = drupalAuthMethod
 	}
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
 		cfg.Redis.URL = redisURL

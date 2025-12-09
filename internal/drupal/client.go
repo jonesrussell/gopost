@@ -4,19 +4,24 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gopost/integration/internal/logger"
 )
 
 type Client struct {
-	baseURL string
-	token   string
-	client  *http.Client
-	logger  logger.Logger
+	baseURL    string
+	username   string
+	token      string
+	authMethod string
+	client     *http.Client
+	logger     logger.Logger
 }
 
 type ArticleRequest struct {
@@ -32,9 +37,8 @@ type DrupalArticle struct {
 	Data struct {
 		Type       string `json:"type"`
 		Attributes struct {
-			Title    string `json:"title"`
-			Body     string `json:"body"`
-			FieldURL string `json:"field_url"`
+			Title string `json:"title"`
+			Body  string `json:"body,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup struct {
@@ -61,7 +65,7 @@ type DrupalError struct {
 	Detail string `json:"detail"`
 }
 
-func NewClient(baseURL, token string, skipTLSVerify bool, log logger.Logger) (*Client, error) {
+func NewClient(baseURL, username, token, authMethod string, skipTLSVerify bool, log logger.Logger) (*Client, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("drupal URL is required")
 	}
@@ -87,16 +91,70 @@ func NewClient(baseURL, token string, skipTLSVerify bool, log logger.Logger) (*C
 	}
 
 	return &Client{
-		baseURL: baseURL,
-		token:   token,
-		client:  client,
-		logger:  log,
+		baseURL:    baseURL,
+		username:   username,
+		token:      token,
+		authMethod: authMethod,
+		client:     client,
+		logger:     log,
 	}, nil
+}
+
+// getCSRFToken fetches a CSRF token from Drupal's session/token endpoint
+// Note: The session/token endpoint may require Basic Auth, while JSON:API uses API-KEY header
+func (c *Client) getCSRFToken(ctx context.Context) (string, error) {
+	tokenURL := fmt.Sprintf("%s/session/token", c.baseURL)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", tokenURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("create CSRF token request: %w", err)
+	}
+
+	httpReq.Header.Set("Accept", "application/json")
+
+	// Use API-KEY authentication for session/token endpoint
+	var apiKeyValue string
+	if c.username != "" {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		// Set Authorization header with Basic format (required by miniOrange)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	} else {
+		// Fallback: if no username, just use token (base64 encoded)
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	}
+
+	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
+	if c.authMethod != "" {
+		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("fetch CSRF token: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("CSRF token request failed: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	// CSRF token is returned as plain text
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read CSRF token: %w", err)
+	}
+
+	// Trim any whitespace and newlines
+	csrfToken := strings.TrimSpace(string(bodyBytes))
+	return csrfToken, nil
 }
 
 func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	startTime := time.Now()
-	
+
 	// Add method-level context
 	methodLogger := c.logger.With(
 		logger.String("method", "PostArticle"),
@@ -105,10 +163,13 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	drupalArticle := DrupalArticle{}
 	drupalArticle.Data.Type = req.ContentType
 	drupalArticle.Data.Attributes.Title = req.Title
-	drupalArticle.Data.Attributes.Body = req.Body
-	drupalArticle.Data.Attributes.FieldURL = req.URL
+	if req.Body != "" {
+		drupalArticle.Data.Attributes.Body = req.Body
+	}
 	drupalArticle.Data.Relationships.FieldGroup.Data.Type = req.GroupType
 	drupalArticle.Data.Relationships.FieldGroup.Data.ID = req.GroupID
+	// Note: field_url is a relationship field in Drupal and requires a UUID reference
+	// For now, we're omitting it. If needed, we'd need to create/find the URL entity first.
 
 	payload, err := json.Marshal(drupalArticle)
 	if err != nil {
@@ -152,13 +213,46 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 
 	httpReq.Header.Set("Content-Type", "application/vnd.api+json")
-	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
 	httpReq.Header.Set("Accept", "application/vnd.api+json")
+
+	// REST API Authentication module expects API-KEY header with base64(username:api-key)
+	// Also include Authorization header with Basic format as miniOrange requires it
+	var apiKeyValue string
+	if c.username != "" {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		// Set Authorization header with Basic format (required by miniOrange)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	} else {
+		// Fallback: if no username, just use token (base64 encoded)
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	}
+
+	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
+	if c.authMethod != "" {
+		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
+	}
+
+	// Fetch and include CSRF token for POST requests
+	csrfToken, err := c.getCSRFToken(ctx)
+	if err != nil {
+		methodLogger.Warn("Failed to fetch CSRF token, proceeding without it",
+			logger.String("endpoint", endpoint),
+			logger.Error(err),
+		)
+	} else {
+		httpReq.Header.Set("X-CSRF-Token", csrfToken)
+		methodLogger.Debug("Included CSRF token in request",
+			logger.String("endpoint", endpoint),
+		)
+	}
 
 	requestStartTime := time.Now()
 	resp, err := c.client.Do(httpReq)
 	requestDuration := time.Since(requestStartTime)
-	
+
 	if err != nil {
 		methodLogger.Error("HTTP request failed",
 			logger.String("endpoint", endpoint),
@@ -173,7 +267,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	if resp.StatusCode >= 400 {
 		var drupalResp DrupalResponse
 		decodeErr := json.NewDecoder(resp.Body).Decode(&drupalResp)
-		
+
 		if decodeErr == nil && len(drupalResp.Errors) > 0 {
 			errorDetail := drupalResp.Errors[0]
 			methodLogger.Error("Drupal API error",
@@ -191,7 +285,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 				errorDetail.Title,
 				errorDetail.Detail)
 		}
-		
+
 		methodLogger.Error("Drupal API error",
 			logger.String("endpoint", endpoint),
 			logger.String("article_title", req.Title),

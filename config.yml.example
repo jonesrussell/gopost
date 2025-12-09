@@ -11,7 +11,9 @@ elasticsearch:
 
 drupal:
   url: "https://your-drupal-site.com"
+  username: ""  # Optional: Username for REST API Authentication
   token: "your-oauth-token-here"
+  auth_method: ""  # Optional: AUTH-METHOD header value (application ID from miniOrange REST API Authentication)
   skip_tls_verify: false  # Set to true in development to skip certificate verification (e.g., for ddev)
 
 redis:
