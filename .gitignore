@@ -37,3 +37,4 @@ bin/
 # Coverage files
 coverage.out
 coverage.html
+config.yml
