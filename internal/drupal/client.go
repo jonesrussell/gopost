@@ -37,8 +37,9 @@ type DrupalArticle struct {
 	Data struct {
 		Type       string `json:"type"`
 		Attributes struct {
-			Title string `json:"title"`
-			Body  string `json:"body,omitempty"`
+			Title    string                 `json:"title"`
+			Body     string                 `json:"body,omitempty"`
+			FieldURL map[string]interface{} `json:"field_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup struct {
@@ -166,18 +167,25 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	if req.Body != "" {
 		drupalArticle.Data.Attributes.Body = req.Body
 	}
-	// field_group expects an array of group references (even if only one)
-	drupalArticle.Data.Relationships.FieldGroup.Data = []struct {
-		Type string `json:"type"`
-		ID   string `json:"id"`
-	}{
-		{
-			Type: req.GroupType,
-			ID:   req.GroupID,
-		},
+	// field_url is required - send as URI field in attributes
+	if req.URL != "" {
+		drupalArticle.Data.Attributes.FieldURL = map[string]interface{}{
+			"uri": req.URL,
+		}
 	}
-	// Note: field_url is a relationship field in Drupal and requires a UUID reference
-	// For now, we're omitting it. If needed, we'd need to create/find the URL entity first.
+	// field_group must be in relationships (not attributes)
+	// Send as array even if only one group reference
+	if req.GroupID != "" {
+		drupalArticle.Data.Relationships.FieldGroup.Data = []struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+		}{
+			{
+				Type: req.GroupType,
+				ID:   req.GroupID,
+			},
+		}
+	}
 
 	payload, err := json.Marshal(drupalArticle)
 	if err != nil {
@@ -288,14 +296,23 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		decodeErr := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&drupalResp)
 
 		if decodeErr == nil && len(drupalResp.Errors) > 0 {
+			// Log all validation errors, not just the first one
+			errorDetails := make([]string, len(drupalResp.Errors))
+			for i, err := range drupalResp.Errors {
+				errorDetails[i] = fmt.Sprintf("%s: %s", err.Title, err.Detail)
+			}
+			allErrors := strings.Join(errorDetails, "; ")
+
 			errorDetail := drupalResp.Errors[0]
-			methodLogger.Error("Drupal API error",
+			methodLogger.Error("Drupal API validation error",
 				logger.String("endpoint", endpoint),
 				logger.String("article_title", req.Title),
 				logger.String("group_type", req.GroupType),
 				logger.String("group_id", req.GroupID),
 				logger.Int("status_code", resp.StatusCode),
 				logger.String("status", resp.Status),
+				logger.Int("error_count", len(drupalResp.Errors)),
+				logger.String("all_errors", allErrors),
 				logger.String("error_status", errorDetail.Status),
 				logger.String("error_title", errorDetail.Title),
 				logger.String("error_detail", errorDetail.Detail),
@@ -305,7 +322,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			return fmt.Errorf("drupal API error (%d): %s - %s",
 				resp.StatusCode,
 				errorDetail.Title,
-				errorDetail.Detail)
+				allErrors)
 		}
 
 		methodLogger.Error("Drupal API error",
