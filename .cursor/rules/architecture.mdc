@@ -1,0 +1,44 @@
+---
+alwaysApply: true
+---
+
+# Architecture Patterns
+
+## Service Structure
+
+The integration service follows these patterns:
+
+1. **Dependency Injection**: Services receive dependencies (logger, clients) via constructors
+   - `integration.NewService(cfg, logger)` - receives config and logger
+   - `drupal.NewClient(url, token, skipTLS, logger)` - receives logger
+   - `dedup.NewTracker(client, logger)` - receives logger
+
+2. **Interface-based design**: 
+   - `logger.Logger` interface for logging (mockable for tests)
+   - All components accept logger interface, not concrete types
+
+3. **Context propagation**: 
+   - All async operations accept `context.Context` as first parameter
+   - Use context for cancellation and timeouts
+
+4. **Configuration**: 
+   - YAML config file with environment variable overrides
+   - Config loaded early in `main()` to determine debug mode
+   - Debug mode controls logger format (pretty vs JSON)
+
+## Component Responsibilities
+
+- **main.go**: Application entry point, logger initialization, graceful shutdown
+- **internal/integration**: Core service logic, article processing, city management
+- **internal/drupal**: Drupal JSON:API client with structured logging
+- **internal/dedup**: Redis-based deduplication tracker
+- **internal/config**: Configuration loading and validation
+- **internal/logger**: Structured logging abstraction over zap
+
+## Data Flow
+
+1. Service queries Elasticsearch for articles
+2. Filters articles by crime keywords
+3. Checks Redis for duplicates
+4. Posts to Drupal via JSON:API
+5. Marks as posted in Redis

@@ -1,0 +1,62 @@
+---
+description: Ensuring log fields use snake_case naming and referencing standard field names used throughout the codebase.
+alwaysApply: false
+---
+# Log Field Naming Convention
+
+## Standard: snake_case
+
+All log fields MUST use `snake_case` naming. This ensures consistency and makes logs easier to query/parse.
+
+## Common Fields
+
+Use these standard field names throughout the codebase:
+
+- `article_id` - Article identifier
+- `city` - City name
+- `index_name` - Elasticsearch index name
+- `error` - Error details (when using Error() helper)
+- `duration` - Operation duration
+- `query_duration` - Elasticsearch query time
+- `post_duration` - Drupal POST request time
+- `request_duration` - HTTP request duration
+- `status_code` - HTTP status code
+- `service` - Service name (always "gopost")
+- `version` - Application version
+- `config_path` - Configuration file path
+- `redis_key` - Redis key name
+- `ttl` - Time to live
+- `lookback_hours` - Hours to look back
+- `article_count` - Number of articles
+- `total_articles` - Total article count
+- `posted` - Count of posted articles
+- `skipped` - Count of skipped articles
+- `errors` - Count of errors
+
+## Field Type Helpers
+
+Use appropriate field helpers from `internal/logger`:
+- `logger.String()` - String values
+- `logger.Int()` - Integer values
+- `logger.Duration()` - time.Duration values
+- `logger.Error()` - Error values (uses "error" key)
+- `logger.Bool()` - Boolean values
+- `logger.Time()` - time.Time values
+
+## Examples
+
+```go
+// Good - snake_case fields
+logger.Info("Article posted",
+    logger.String("article_id", id),
+    logger.String("city", city),
+    logger.Duration("post_duration", duration),
+)
+
+// Bad - camelCase or inconsistent naming
+logger.Info("Article posted",
+    logger.String("articleId", id),  // Wrong!
+    logger.String("City", city),      // Wrong!
+    logger.Duration("postDuration", duration),  // Wrong!
+)
+```

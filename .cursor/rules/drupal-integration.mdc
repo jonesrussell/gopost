@@ -1,0 +1,37 @@
+---
+description: Posting articles to Drupal with structured logging, method-level context, and TLS configuration handling.
+alwaysApply: false
+---
+# Drupal Integration
+
+## Client Pattern
+
+The Drupal client uses structured logging with method-level context:
+
+```go
+methodLogger := c.logger.With(
+    logger.String("method", "PostArticle"),
+)
+```
+
+## Request Logging
+
+- **Debug level**: Log request details before sending (endpoint, title, content_type, etc.)
+- **Info level**: Log successful posts with response details (drupal_id, status_code, duration)
+- **Error level**: Log API errors with full context (status_code, error details, duration)
+
+## TLS Configuration
+
+- In development, `skip_tls_verify: true` is common (for ddev)
+- Log a WARN when TLS verification is disabled
+- Always set to `false` in production
+
+## Field Names
+
+Use consistent field names:
+- `endpoint` - API endpoint URL
+- `article_title` - Article title being posted
+- `content_type` - Drupal content type
+- `status_code` - HTTP status code
+- `request_duration` - HTTP request time
+- `total_duration` - Total PostArticle operation time

@@ -1,0 +1,53 @@
+---
+description: Configuring debug mode to control logging format (pretty vs JSON), verbosity, and stack trace levels.
+alwaysApply: false
+---
+# Debug Mode Configuration
+
+## Overview
+
+The application supports debug mode which controls logging format and verbosity.
+
+## Configuration
+
+### Via Config File
+
+```yaml
+# config.yml
+debug: true  # or false
+```
+
+### Via Environment Variable
+
+```bash
+export APP_DEBUG=true
+```
+
+The `APP_DEBUG` environment variable accepts:
+- `true`, `1`, `yes` (case-insensitive) → enables debug mode
+- Any other value → disables debug mode (production)
+
+## Debug Mode Behavior
+
+When `debug: true`:
+- **Logger**: Development logger with pretty, colorized output
+- **Format**: Human-readable console format (not JSON)
+- **Colors**: Log levels are color-coded (DEBUG=magenta, INFO=blue, WARN=yellow, ERROR=red)
+- **Stack traces**: Only for WARN and ERROR levels (not for DEBUG/INFO to reduce noise)
+- **Timestamps**: ISO8601 format (2025-12-09T19:30:00.000Z)
+- **Caller**: Short format (file:line)
+
+When `debug: false`:
+- **Logger**: Production logger with JSON output
+- **Format**: JSON format optimized for log aggregation
+- **Stack traces**: Only for ERROR level
+- **Performance**: Optimized for production workloads
+
+## Usage in Code
+
+Logger is initialized in `main.go`:
+```go
+appLogger, err := logger.NewLogger(cfg.Debug)
+```
+
+All components receive the logger and use it for structured logging.

@@ -1,0 +1,40 @@
+---
+alwaysApply: true
+---
+
+# Go Coding Standards
+
+## General Principles
+
+1. **Go 1.25** - Use Go 1.25 features and best practices
+2. **Error handling**: Always handle errors explicitly, never ignore them
+3. **Context propagation**: Pass `context.Context` as first parameter to functions that need it
+4. **Interface-based design**: Use interfaces for testability and flexibility
+
+## Code Organization
+
+- `internal/` packages are private to this module
+- Each package should have a single, clear responsibility
+- Use table-driven tests where appropriate
+- Add comprehensive godoc comments for exported functions/types
+
+## Naming Conventions
+
+- Use descriptive names
+- Exported functions/types: PascalCase
+- Unexported: camelCase
+- Constants: PascalCase or UPPER_SNAKE_CASE
+- Log fields: snake_case (e.g., `article_id`, `city`, `index_name`)
+
+## Error Handling
+
+- Wrap errors with context: `fmt.Errorf("operation failed: %w", err)`
+- Return errors, don't log and ignore
+- Use structured logging for error details
+
+## Testing
+
+- Use table-driven tests for similar test cases
+- Test files: `*_test.go`
+- Example tests: `example_test.go`
+- Use `testify` if helpful, but standard testing is preferred

@@ -1,0 +1,32 @@
+---
+description: Building Elasticsearch queries with correct field mappings (body, canonical_url, published_date) and query patterns.
+alwaysApply: false
+---
+# Elasticsearch Integration
+
+## Field Mapping
+
+The Elasticsearch documents use different field names than our internal Article struct:
+
+- Elasticsearch `body` → Article `Content`
+- Elasticsearch `canonical_url` → Article `URL`
+- Elasticsearch `published_date` → Article `PublishedAt`
+
+## Query Patterns
+
+1. **Date filtering**: Use `published_date` field (not `published_at`)
+2. **Content search**: Use `body` field (not `content`)
+3. **Index naming**: Format is `{city_name}_articles` (e.g., `sudbury_com_articles`)
+
+## Query Structure
+
+- Use `multi_match` for keyword searching across `title^2` and `body`
+- Use `range` query for date filtering on `published_date`
+- When `lookback_hours: 0`, skip date filter entirely
+- Always log queries at DEBUG level in development mode
+
+## Error Handling
+
+- Log Elasticsearch errors with full context (index, city, query details)
+- Include duration metrics for performance monitoring
+- Test queries without filters when no results found (for debugging)

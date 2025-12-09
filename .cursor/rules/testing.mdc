@@ -1,0 +1,43 @@
+---
+globs: *_test.go
+alwaysApply: false
+---
+# Testing Standards
+
+## Test Organization
+
+- Test files: `*_test.go` in the same package
+- Example tests: `example_test.go` (package `{package}_test`)
+- Use table-driven tests for similar test cases
+
+## Test Patterns
+
+1. **Table-driven tests** for multiple scenarios:
+   ```go
+   tests := []struct {
+       name     string
+       input    string
+       expected bool
+   }{
+       {"test case 1", "input1", true},
+       {"test case 2", "input2", false},
+   }
+   ```
+
+2. **Use descriptive test names**: Test function names should describe what they test
+3. **Test both success and failure cases**
+4. **Test edge cases**: Empty strings, nil values, boundary conditions
+
+## Logger Testing
+
+- Use `logger.NewNopLogger()` for tests that don't need actual logging
+- Test logger creation with both `debug=true` and `debug=false`
+- Test all log levels (Debug, Info, Warn, Error)
+- Test structured fields
+- Test With() method for context propagation
+
+## Example Tests
+
+- Use `ExampleFunctionName()` naming
+- Include `// Output:` comment (empty for logger examples since output varies)
+- Examples should demonstrate proper usage patterns
