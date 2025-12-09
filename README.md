@@ -265,10 +265,16 @@ The service uses structured logging powered by [zap](https://github.com/uber-go/
 The log format depends on the `debug` configuration setting:
 
 **Development Mode (`debug: true`):**
-- Human-readable, colorized output
-- Stack traces for all log levels
-- More verbose output suitable for development
-- Example: `2025-12-09T19:30:00.000Z	INFO	service.go:123	Starting article sync`
+- Human-readable, colorized output with pretty formatting
+- Color-coded log levels (DEBUG=magenta, INFO=blue, WARN=yellow, ERROR=red)
+- Stack traces for warnings and errors (not for debug/info to reduce noise)
+- Clean ISO8601 timestamp format
+- Short caller format (file:line) for easy debugging
+- Pretty-printed structured fields
+- Example output:
+  ```
+  2025-12-09T19:30:00.000Z	INFO	service.go:123	Starting article sync	{"service": "gopost", "version": "1.0.0"}
+  ```
 
 **Production Mode (`debug: false`):**
 - JSON-formatted output

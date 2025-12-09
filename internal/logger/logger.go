@@ -67,10 +67,12 @@ func (l *zapLogger) Sync() error {
 }
 
 // NewLogger creates a new Logger instance.
-// If debug is true, it uses zap.NewDevelopment() which provides:
-// - Human-readable, colorized output
-// - Stack traces for all log levels
+// If debug is true, it uses a custom development configuration which provides:
+// - Human-readable, colorized output with pretty formatting
+// - Stack traces for warnings and errors (not for debug/info to reduce noise)
 // - More verbose output suitable for development
+// - Clean timestamp formatting
+// - Pretty-printed structured fields
 //
 // If debug is false, it uses zap.NewProduction() which provides:
 // - JSON-formatted output
@@ -84,7 +86,34 @@ func NewLogger(debug bool) (Logger, error) {
 	var err error
 
 	if debug {
-		z, err = zap.NewDevelopment()
+		// Create a custom development config with prettier formatting
+		config := zap.NewDevelopmentConfig()
+		
+		// Enable color output for log levels
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		
+		// Use ISO8601 time format (readable: 2025-12-09T19:30:00.000Z)
+		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		
+		// Use short caller format (file:line)
+		config.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+		
+		// Use console encoder for pretty, human-readable output
+		config.Encoding = "console"
+		
+		// Set development defaults
+		config.Development = true
+		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+		
+		// Disable sampling in development for all logs to be visible
+		config.Sampling = nil
+		
+		z, err = config.Build(
+			// Add caller skip to show the actual calling function
+			zap.AddCallerSkip(0),
+			// Add stack traces only for errors and warnings (not for debug/info)
+			zap.AddStacktrace(zapcore.WarnLevel),
+		)
 	} else {
 		z, err = zap.NewProduction()
 	}
