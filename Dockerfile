@@ -26,8 +26,8 @@ WORKDIR /app
 COPY --from=builder /build/integration .
 
 # Copy config file (if exists)
-COPY --from=builder /build/config.yaml* ./
+COPY --from=builder /build/config.yml* ./
 
 EXPOSE 8080
 
-CMD ["./integration", "-config", "config.yaml"]
+CMD ["./integration", "-config", "config.yml"]

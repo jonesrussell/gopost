@@ -47,7 +47,7 @@ services:
       - DRUPAL_URL=${DRUPAL_URL:-https://your-drupal-site.com}
       - DRUPAL_TOKEN=${DRUPAL_TOKEN}
     volumes:
-      - ./config.yaml:/app/config.yaml:ro
+      - ./config.yml:/app/config.yml:ro
     restart: unless-stopped
 
 volumes:

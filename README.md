@@ -54,10 +54,10 @@ A Go service that bridges Elasticsearch (where crawled articles are stored) and 
 Copy the example config file:
 
 ```bash
-cp config.yaml.example config.yaml
+cp config.yml.example config.yml
 ```
 
-Edit `config.yaml` with your settings:
+Edit `config.yml` with your settings:
 
 ```yaml
 elasticsearch:
@@ -109,7 +109,7 @@ task run
 
 # Or build and run manually
 task build
-./bin/integration -config config.yaml
+./bin/integration -config config.yml
 ```
 
 ### 4. Run with Docker Compose
@@ -139,7 +139,7 @@ drush en jsonapi -y
 1. Install the OAuth2 module: `drush en oauth2 -y`
 2. Create a client in Drupal admin
 3. Generate a token for API access
-4. Use this token in the `config.yaml` file
+4. Use this token in the `config.yml` file
 
 ### 3. Content Type Structure
 

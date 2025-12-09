@@ -5,7 +5,7 @@ vars:
   MAIN_PATH: ./main.go
   BUILD_DIR: ./bin
   DOCKER_IMAGE: gopost-integration
-  CONFIG_FILE: config.yaml
+  CONFIG_FILE: config.yml
 
 tasks:
   default:
