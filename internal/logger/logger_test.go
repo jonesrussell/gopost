@@ -120,7 +120,7 @@ func TestLoggerStructuredFields(t *testing.T) {
 		Time("time_field", time.Now()),
 		Error(errors.New("test error")),
 		NamedError("custom_error", errors.New("custom")),
-		Any("any_field", map[string]interface{}{"key": "value"}),
+		Any("any_field", map[string]any{"key": "value"}),
 		Strings("strings_field", []string{"a", "b", "c"}),
 		Ints("ints_field", []int{1, 2, 3}),
 	)

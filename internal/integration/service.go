@@ -203,7 +203,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 				logger.String("index_name", index),
 				logger.String("city", cityCfg.Name),
 				logger.String("status", res.Status()),
-				logger.Error(err),
+				logger.Error(decodeErr),
 			)
 			return nil, fmt.Errorf("elasticsearch error response: %s", res.Status())
 		}
