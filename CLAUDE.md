@@ -347,6 +347,117 @@ func TestLoadConfig_ValidFile(t *testing.T) {
 }
 ```
 
+### 7. Linting and Code Quality
+
+#### Running the Linter
+```bash
+golangci-lint run
+```
+
+#### Linter Configuration
+The project uses golangci-lint with strict rules configured in `.golangci.yml`. Key settings:
+
+- **Line Length**: Maximum 150 characters
+- **Function Length**: Maximum 100 lines, 50 statements
+- **Cognitive Complexity**: Maximum 20
+- **Cyclomatic Complexity**: Maximum 30
+
+#### Intentional Pattern Exceptions
+
+Some linter warnings are intentionally suppressed for valid reasons:
+
+1. **Canonical Headers** (internal/drupal/client.go):
+   - `API-KEY`, `AUTH-METHOD`, `X-CSRF-Token` - Required exact names by Drupal REST API
+   - Use `//nolint:canonicalheader` with explanation
+
+2. **Magic Numbers**:
+   - HTTP status codes (400, 404, etc.) - Standard HTTP conventions
+   - Timeout values (30 seconds, 5 minutes) - Common defaults
+   - Use constants for application-specific numbers
+
+3. **TLS Skip Verify** (G402):
+   - Allowed in development mode only
+   - Must log warning when enabled
+   - Never use in production
+
+4. **Debug Utilities** (cmd/getnode):
+   - `fmt.Println` allowed for debug output
+   - These are development tools, not production code
+
+5. **Test Packages**:
+   - White-box testing (same package) allowed for config and logger tests
+   - Use black-box testing (`_test` package) for other packages
+
+#### Using nolint Directives
+
+When suppressing linter warnings, always provide explanation:
+
+```go
+//nolint:canonicalheader // Drupal REST API requires exact header name
+req.Header.Set("API-KEY", apiKeyValue)
+
+//nolint:gosec // G402: TLS skip verify intentional for development
+client.Transport = &http.Transport{
+    TLSClientConfig: &tls.Config{
+        InsecureSkipVerify: true,
+    },
+}
+```
+
+#### Common Linter Issues and Fixes
+
+1. **Error Handling**:
+   ```go
+   // Bad
+   if err != nil && err != context.Canceled {
+
+   // Good
+   if err != nil && !errors.Is(err, context.Canceled) {
+   ```
+
+2. **Shadow Variables**:
+   ```go
+   // Bad
+   if err := someFunc(); err != nil {
+       err := anotherFunc() // shadows outer err
+   }
+
+   // Good
+   if err := someFunc(); err != nil {
+       newErr := anotherFunc()
+   }
+   ```
+
+3. **Defer with os.Exit**:
+   ```go
+   // Bad
+   defer logger.Sync()
+   // ... later ...
+   os.Exit(1) // defer won't run
+
+   // Good
+   _ = logger.Sync()
+   os.Exit(1)
+   ```
+
+4. **Interface{} vs Any**:
+   ```go
+   // Old (pre-Go 1.18)
+   func Process(data map[string]interface{}) error
+
+   // Modern (Go 1.18+)
+   func Process(data map[string]any) error
+   ```
+
+5. **HTTP Methods and Bodies**:
+   ```go
+   // Bad
+   req, err := http.NewRequest("GET", url, nil)
+
+   // Good
+   req, err := http.NewRequest(http.MethodGet, url, http.NoBody)
+   ```
+
 ---
 
 ## Development Workflow
