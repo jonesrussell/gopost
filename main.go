@@ -90,9 +90,9 @@ func main() {
 		logger.Bool("debug", cfg.Debug),
 	)
 
-	if err := service.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if runErr := service.Run(ctx); runErr != nil && !errors.Is(runErr, context.Canceled) {
 		appLogger.Error("Service error",
-			logger.Error(err),
+			logger.Error(runErr),
 		)
 		_ = appLogger.Sync()
 		os.Exit(1)

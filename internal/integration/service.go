@@ -97,9 +97,9 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	startTime := time.Now()
 
 	// Build Elasticsearch query
-	mustClauses := []map[string]interface{}{
+	mustClauses := []map[string]any{
 		{
-			"multi_match": map[string]interface{}{
+			"multi_match": map[string]any{
 				"query":    strings.Join(s.config.Service.CrimeKeywords, " "),
 				"fields":   []string{"title^2", "body"}, // Use "body" instead of "content"
 				"type":     "best_fields",
@@ -118,10 +118,10 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			logger.Int("lookback_hours", s.config.Service.LookbackHours),
 		)
 
-		mustClauses = append([]map[string]interface{}{
+		mustClauses = append([]map[string]any{
 			{
-				"range": map[string]interface{}{
-					"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
+				"range": map[string]any{
+					"published_date": map[string]any{ // Use "published_date" instead of "published_at"
 						"gte": lastCheckStr,
 					},
 				},
@@ -134,16 +134,16 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		)
 	}
 
-	query := map[string]interface{}{
-		"query": map[string]interface{}{
-			"bool": map[string]interface{}{
+	query := map[string]any{
+		"query": map[string]any{
+			"bool": map[string]any{
 				"must": mustClauses,
 			},
 		},
 		"size": 100,
-		"sort": []map[string]interface{}{
+		"sort": []map[string]any{
 			{
-				"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
+				"published_date": map[string]any{ // Use "published_date" instead of "published_at"
 					"order": "desc",
 				},
 			},
@@ -197,8 +197,8 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	)
 
 	if res.IsError() {
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+		var e map[string]any
+		if decodeErr := json.NewDecoder(res.Body).Decode(&e); decodeErr != nil {
 			s.logger.Error("Failed to decode Elasticsearch error response",
 				logger.String("index_name", index),
 				logger.String("city", cityCfg.Name),
@@ -258,9 +258,9 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			logger.String("city", cityCfg.Name),
 			logger.String("index_name", index),
 		)
-		testQuery := map[string]interface{}{
-			"query": map[string]interface{}{
-				"match_all": map[string]interface{}{},
+		testQuery := map[string]any{
+			"query": map[string]any{
+				"match_all": map[string]any{},
 			},
 			"size": 1,
 		}
@@ -281,7 +281,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 								Value int `json:"value"`
 							} `json:"total"`
 							Hits []struct {
-								Source map[string]interface{} `json:"_source"`
+								Source map[string]any `json:"_source"`
 							} `json:"hits"`
 						} `json:"hits"`
 					}

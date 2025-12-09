@@ -46,8 +46,8 @@ type DrupalArticle struct {
 	Data struct {
 		Type       string `json:"type"`
 		Attributes struct {
-			Title    string                 `json:"title"`
-			Body     string                 `json:"body,omitempty"`
+			Title    string         `json:"title"`
+			Body     string         `json:"body,omitempty"`
 			FieldURL map[string]any `json:"field_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
@@ -120,13 +120,11 @@ func (c *Client) setAuthHeaders(req *http.Request) {
 		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
 	}
 
-	//nolint:canonicalheader // Drupal REST API requires exact header names
 	req.Header.Set("API-KEY", apiKeyValue)
 	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
 
 	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
 	if c.authMethod != "" {
-		//nolint:canonicalheader // miniOrange requires exact header name
 		req.Header.Set("AUTH-METHOD", c.authMethod)
 	}
 }
@@ -266,7 +264,6 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			logger.Error(csrfErr),
 		)
 	} else {
-		//nolint:canonicalheader // Drupal requires exact header name
 		httpReq.Header.Set("X-CSRF-Token", csrfToken)
 		methodLogger.Debug("Included CSRF token in request",
 			logger.String("endpoint", endpoint),
@@ -367,12 +364,8 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	return nil
 }
 
-// GetNode fetches a node by ID from Drupal JSON:API (temporary method for debugging)
-// nodeID can be either a UUID or numeric ID
-func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]any, error) {
-	// Try UUID format first
-	endpoint := fmt.Sprintf("%s/jsonapi/node/article/%s", c.baseURL, nodeID)
-
+// doJSONAPIRequest performs a GET request to a Drupal JSON:API endpoint and returns the parsed response
+func (c *Client) doJSONAPIRequest(ctx context.Context, endpoint string) (map[string]any, error) {
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -405,38 +398,15 @@ func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]any, er
 	return result, nil
 }
 
+// GetNode fetches a node by ID from Drupal JSON:API (temporary method for debugging)
+// nodeID can be either a UUID or numeric ID
+func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]any, error) {
+	endpoint := fmt.Sprintf("%s/jsonapi/node/article/%s", c.baseURL, nodeID)
+	return c.doJSONAPIRequest(ctx, endpoint)
+}
+
 // ListNodes lists articles from Drupal JSON:API (temporary method for debugging)
 func (c *Client) ListNodes(ctx context.Context, limit int) (map[string]any, error) {
 	endpoint := fmt.Sprintf("%s/jsonapi/node/article?page[limit]=%d", c.baseURL, limit)
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	httpReq.Header.Set("Accept", "application/vnd.api+json")
-	c.setAuthHeaders(httpReq)
-
-	resp, respErr := c.client.Do(httpReq)
-	if respErr != nil {
-		return nil, fmt.Errorf("http request: %w", respErr)
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, readErr := io.ReadAll(resp.Body)
-	if readErr != nil {
-		return nil, fmt.Errorf("read response: %w", readErr)
-	}
-
-	const badRequestStatusCode = 400
-	if resp.StatusCode >= badRequestStatusCode {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var result map[string]any
-	if decodeErr := json.Unmarshal(bodyBytes, &result); decodeErr != nil {
-		return nil, fmt.Errorf("decode response: %w", decodeErr)
-	}
-
-	return result, nil
+	return c.doJSONAPIRequest(ctx, endpoint)
 }

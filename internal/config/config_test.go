@@ -41,16 +41,6 @@ func TestParseBool(t *testing.T) {
 }
 
 func TestConfigDebugFromEnv(t *testing.T) {
-	// Save original value
-	originalValue := os.Getenv("APP_DEBUG")
-	defer func() {
-		if originalValue != "" {
-			os.Setenv("APP_DEBUG", originalValue)
-		} else {
-			os.Unsetenv("APP_DEBUG")
-		}
-	}()
-
 	tests := []struct {
 		name     string
 		envValue string
@@ -67,9 +57,7 @@ func TestConfigDebugFromEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.envValue != "" {
-				os.Setenv("APP_DEBUG", tt.envValue)
-			} else {
-				os.Unsetenv("APP_DEBUG")
+				t.Setenv("APP_DEBUG", tt.envValue)
 			}
 
 			// Create a minimal config for testing

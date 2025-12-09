@@ -316,6 +316,14 @@ linters:
         path: internal/(config|drupal|integration)/.*\.go
         text: "shadow"
       - linters:
+          - gocritic
+        path: (main|cmd/getnode/main)\.go
+        text: "exitAfterDefer"
+      - linters:
+          - funlen
+          - gocognit
+        path: internal/(integration|drupal)/.*\.go
+      - linters:
           - gochecknoglobals
         path: .*module\.go$
       - linters:
