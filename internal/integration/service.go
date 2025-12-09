@@ -256,7 +256,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	if result.Hits.Total.Value == 0 && len(s.config.Service.CrimeKeywords) > 0 {
 		s.logger.Debug("No articles found, testing query without keyword filter",
 			logger.String("city", cityCfg.Name),
-			logger.String("index", index),
+			logger.String("index_name", index),
 		)
 		testQuery := map[string]interface{}{
 			"query": map[string]interface{}{

@@ -84,6 +84,7 @@ You can override config values with environment variables:
 - `DRUPAL_URL` - Drupal site URL
 - `DRUPAL_TOKEN` - Drupal OAuth token
 - `REDIS_URL` - Redis connection string
+- `APP_DEBUG` - Enable debug mode (`true`, `1`, `yes` for debug, anything else for production)
 
 ### 3. Install Task (if not already installed)
 
@@ -155,11 +156,18 @@ Create groups in Drupal (e.g., "Sudbury, Ontario, Canada - Crime News") and note
 
 ## Configuration Reference
 
+### Application Settings
+
+- `debug`: Enable debug mode (default: `false`)
+  - `true`: Development logger (human-readable, colorized)
+  - `false`: Production logger (JSON format, optimized)
+  - Can be overridden with `APP_DEBUG` environment variable
+
 ### Service Settings
 
 - `check_interval`: How often to check for new articles (e.g., "5m", "1h")
 - `rate_limit_rps`: Maximum requests per second to Drupal
-- `lookback_hours`: How many hours back to search in Elasticsearch
+- `lookback_hours`: How many hours back to search in Elasticsearch (0 = no date filter)
 - `crime_keywords`: List of keywords to identify crime articles
 - `content_type`: Drupal content type (default: "node--article")
 - `group_type`: Drupal group type (default: "group--crime_news")
@@ -248,6 +256,149 @@ task test:coverage
 task test:race
 ```
 
+## Logging
+
+The service uses structured logging powered by [zap](https://github.com/uber-go/zap) for high-performance, structured logging.
+
+### Log Format
+
+The log format depends on the `debug` configuration setting:
+
+**Development Mode (`debug: true`):**
+- Human-readable, colorized output
+- Stack traces for all log levels
+- More verbose output suitable for development
+- Example: `2025-12-09T19:30:00.000Z	INFO	service.go:123	Starting article sync`
+
+**Production Mode (`debug: false`):**
+- JSON-formatted output
+- Optimized for performance
+- Stack traces only for errors and above
+- Example: `{"level":"info","ts":1702143000.0,"caller":"service.go:123","msg":"Starting article sync","service":"gopost","version":"1.0.0"}`
+
+### Configuration
+
+Enable debug mode in `config.yml`:
+
+```yaml
+# Application debug mode
+# When true: uses development logger (human-readable, colorized output)
+# When false: uses production logger (JSON format, optimized for performance)
+# Can be overridden with APP_DEBUG environment variable
+debug: true
+```
+
+Or via environment variable:
+
+```bash
+export APP_DEBUG=true
+```
+
+The `APP_DEBUG` environment variable accepts:
+- `true`, `1`, `yes` (case-insensitive) → enables debug mode
+- Any other value → disables debug mode (production)
+
+### Log Levels
+
+The service uses the following log levels:
+
+- **Debug**: Detailed information for troubleshooting (queries, processing steps, cache operations)
+- **Info**: General informational messages (service start/stop, articles found/posted, sync completion)
+- **Warn**: Non-critical issues (failed to mark article as posted, TLS verification disabled)
+- **Error**: Failures requiring attention (API errors, connection failures, processing errors)
+
+### Common Log Fields
+
+The service uses consistent field naming (snake_case) across all logs:
+
+- `article_id` - Unique identifier for an article
+- `city` - City name being processed
+- `index_name` - Elasticsearch index name
+- `error` - Error details (when using Error() field helper)
+- `duration` - Operation duration (time.Duration)
+- `query_duration` - Elasticsearch query execution time
+- `post_duration` - Time to post article to Drupal
+- `request_duration` - HTTP request duration
+- `status_code` - HTTP response status code
+- `service` - Service name (always "gopost")
+- `version` - Application version
+
+### Example Log Entries
+
+**Info level - Article posted:**
+```json
+{
+  "level": "info",
+  "msg": "Posted article",
+  "title": "Police arrest suspect",
+  "city": "sudbury_com",
+  "article_id": "abc123",
+  "url": "https://example.com/article",
+  "post_duration": "150ms",
+  "article_processing_duration": "200ms"
+}
+```
+
+**Debug level - Cache check:**
+```json
+{
+  "level": "debug",
+  "msg": "Checking if article was posted",
+  "article_id": "abc123",
+  "redis_key": "posted:article:abc123"
+}
+```
+
+**Error level - API failure:**
+```json
+{
+  "level": "error",
+  "msg": "Drupal API error",
+  "endpoint": "https://drupal.site/jsonapi/node/article",
+  "article_title": "Police arrest suspect",
+  "status_code": 400,
+  "error_detail": "Field group_id is required",
+  "request_duration": "120ms"
+}
+```
+
+### Logging Best Practices
+
+1. **Use structured fields** instead of string concatenation:
+   ```go
+   // Good
+   logger.Info("Article posted",
+       logger.String("article_id", id),
+       logger.String("title", title),
+   )
+   
+   // Avoid
+   logger.Info(fmt.Sprintf("Article %s titled '%s' posted", id, title))
+   ```
+
+2. **Use appropriate log levels**:
+   - Debug: Detailed troubleshooting info
+   - Info: Important business events
+   - Warn: Non-critical issues
+   - Error: Failures requiring attention
+
+3. **Include context** using the `With()` method:
+   ```go
+   requestLogger := logger.With(
+       logger.String("request_id", "abc-123"),
+       logger.String("user_id", "user-456"),
+   )
+   ```
+
+4. **Add duration fields** for performance monitoring:
+   ```go
+   start := time.Now()
+   // ... do work ...
+   logger.Info("Operation completed",
+       logger.Duration("duration", time.Since(start)),
+   )
+   ```
+
 ## Monitoring
 
 The service logs:
@@ -255,12 +406,13 @@ The service logs:
 - Articles posted successfully
 - Articles skipped (duplicates or non-crime)
 - Errors during processing
+- Performance metrics (durations for all operations)
 
 For production, consider adding:
 - Prometheus metrics
-- Structured logging (JSON)
 - Health check endpoint
 - Alerting on errors
+- Log aggregation (ELK, Loki, etc.)
 
 ## Troubleshooting
 
