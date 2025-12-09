@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/gopost/integration/internal/config"
 	"github.com/gopost/integration/internal/dedup"
 	"github.com/gopost/integration/internal/drupal"
+	"github.com/gopost/integration/internal/logger"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
 )
@@ -24,11 +24,12 @@ type Service struct {
 	dedup       *dedup.Tracker
 	limiter     *rate.Limiter
 	config      *config.Config
+	logger      logger.Logger
 	lastCheckTS time.Time
 	mu          sync.RWMutex
 }
 
-func NewService(cfg *config.Config) (*Service, error) {
+func NewService(cfg *config.Config, log logger.Logger) (*Service, error) {
 	// Initialize Elasticsearch client
 	esCfg := elasticsearch.Config{
 		Addresses: []string{cfg.Elasticsearch.URL},
@@ -44,7 +45,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Initialize Drupal client
-	drupalClient, err := drupal.NewClient(cfg.Drupal.URL, cfg.Drupal.Token, cfg.Drupal.SkipTLSVerify)
+	drupalClient, err := drupal.NewClient(cfg.Drupal.URL, cfg.Drupal.Token, cfg.Drupal.SkipTLSVerify, log)
 	if err != nil {
 		return nil, fmt.Errorf("drupal client: %w", err)
 	}
@@ -63,7 +64,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		return nil, fmt.Errorf("redis connection: %w", err)
 	}
 
-	dedupTracker := dedup.NewTracker(redisClient)
+	dedupTracker := dedup.NewTracker(redisClient, log)
 
 	// Initialize rate limiter
 	limiter := rate.NewLimiter(rate.Limit(cfg.Service.RateLimitRPS), cfg.Service.RateLimitRPS)
@@ -78,6 +79,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 		dedup:       dedupTracker,
 		limiter:     limiter,
 		config:      cfg,
+		logger:      log,
 		lastCheckTS: lastCheckTS,
 	}, nil
 }
@@ -92,6 +94,8 @@ type Article struct {
 }
 
 func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConfig) ([]Article, error) {
+	startTime := time.Now()
+
 	// Build Elasticsearch query
 	mustClauses := []map[string]interface{}{
 		{
@@ -108,7 +112,11 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	if s.config.Service.LookbackHours > 0 {
 		lastCheckTS := s.getLastCheckTS()
 		lastCheckStr := lastCheckTS.Format(time.RFC3339)
-		log.Printf("Searching for articles in %s since %s (lookback: %d hours)", cityCfg.Name, lastCheckStr, s.config.Service.LookbackHours)
+		s.logger.Debug("Searching for articles with date filter",
+			logger.String("city", cityCfg.Name),
+			logger.String("since", lastCheckStr),
+			logger.Int("lookback_hours", s.config.Service.LookbackHours),
+		)
 
 		mustClauses = append([]map[string]interface{}{
 			{
@@ -120,7 +128,10 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			},
 		}, mustClauses...)
 	} else {
-		log.Printf("Searching for articles in %s (no date filter, lookback: %d hours)", cityCfg.Name, s.config.Service.LookbackHours)
+		s.logger.Debug("Searching for articles without date filter",
+			logger.String("city", cityCfg.Name),
+			logger.Int("lookback_hours", s.config.Service.LookbackHours),
+		)
 	}
 
 	query := map[string]interface{}{
@@ -139,10 +150,6 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		},
 	}
 
-	// Log the query for debugging
-	queryJSON, _ := json.MarshalIndent(query, "", "  ")
-	log.Printf("Elasticsearch query: %s", string(queryJSON))
-
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(query); err != nil {
 		return nil, fmt.Errorf("encode query: %w", err)
@@ -154,23 +161,59 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		index = fmt.Sprintf("%s_articles", cityCfg.Name)
 	}
 
+	// Log the query for debugging
+	queryJSON, _ := json.MarshalIndent(query, "", "  ")
+	s.logger.Debug("Elasticsearch query",
+		logger.String("query", string(queryJSON)),
+		logger.String("index_name", index),
+		logger.String("city", cityCfg.Name),
+	)
+
+	queryStartTime := time.Now()
 	res, err := s.esClient.Search(
 		s.esClient.Search.WithContext(ctx),
 		s.esClient.Search.WithIndex(index),
 		s.esClient.Search.WithBody(&buf),
 		s.esClient.Search.WithTrackTotalHits(true),
 	)
+	queryDuration := time.Since(queryStartTime)
+
 	if err != nil {
+		s.logger.Error("Elasticsearch search failed",
+			logger.String("index_name", index),
+			logger.String("city", cityCfg.Name),
+			logger.Duration("query_duration", queryDuration),
+			logger.Error(err),
+		)
 		return nil, fmt.Errorf("search error: %w", err)
 	}
 	defer res.Body.Close()
 
+	s.logger.Debug("Elasticsearch query completed",
+		logger.String("index_name", index),
+		logger.String("city", cityCfg.Name),
+		logger.Duration("query_duration", queryDuration),
+		logger.String("status", res.Status()),
+	)
+
 	if res.IsError() {
 		var e map[string]interface{}
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			s.logger.Error("Failed to decode Elasticsearch error response",
+				logger.String("index_name", index),
+				logger.String("city", cityCfg.Name),
+				logger.String("status", res.Status()),
+				logger.Error(err),
+			)
 			return nil, fmt.Errorf("elasticsearch error response: %s", res.Status())
 		}
-		log.Printf("Elasticsearch error details: %+v", e)
+		s.logger.Error("Elasticsearch error",
+			logger.String("index_name", index),
+			logger.String("city", cityCfg.Name),
+			logger.String("status", res.Status()),
+			logger.Duration("query_duration", queryDuration),
+			logger.Any("error_details", e),
+		)
 		return nil, fmt.Errorf("elasticsearch error: %v", e)
 	}
 
@@ -199,11 +242,22 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		articles = append(articles, hit.Source)
 	}
 
-	log.Printf("Found %d articles in %s (total: %d)", len(articles), cityCfg.Name, result.Hits.Total.Value)
+	totalDuration := time.Since(startTime)
+	s.logger.Info("Found articles",
+		logger.String("city", cityCfg.Name),
+		logger.String("index_name", index),
+		logger.Int("count", len(articles)),
+		logger.Int("total", result.Hits.Total.Value),
+		logger.Duration("duration", totalDuration),
+		logger.Duration("query_duration", queryDuration),
+	)
 
 	// If no articles found, log a sample query without keyword filter for debugging
 	if result.Hits.Total.Value == 0 && len(s.config.Service.CrimeKeywords) > 0 {
-		log.Printf("No articles found. Testing query without keyword filter to check if articles exist...")
+		s.logger.Debug("No articles found, testing query without keyword filter",
+			logger.String("city", cityCfg.Name),
+			logger.String("index_name", index),
+		)
 		testQuery := map[string]interface{}{
 			"query": map[string]interface{}{
 				"match_all": map[string]interface{}{},
@@ -232,10 +286,24 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 						} `json:"hits"`
 					}
 					if err := json.NewDecoder(testRes.Body).Decode(&testResult); err == nil {
-						log.Printf("Index %s contains %d total articles (without filters)", index, testResult.Hits.Total.Value)
+						s.logger.Debug("Index contains articles without filters",
+							logger.String("index_name", index),
+							logger.String("city", cityCfg.Name),
+							logger.Int("total_articles", testResult.Hits.Total.Value),
+						)
 						if len(testResult.Hits.Hits) > 0 {
-							log.Printf("Sample article fields: %+v", testResult.Hits.Hits[0].Source)
+							s.logger.Debug("Sample article fields",
+								logger.String("index_name", index),
+								logger.String("city", cityCfg.Name),
+								logger.Any("sample_fields", testResult.Hits.Hits[0].Source),
+							)
 						}
+					} else {
+						s.logger.Debug("Failed to decode test query result",
+							logger.String("index_name", index),
+							logger.String("city", cityCfg.Name),
+							logger.Error(err),
+						)
 					}
 				}
 			}
@@ -256,8 +324,14 @@ func (s *Service) isCrimeRelated(article Article) bool {
 }
 
 func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) error {
+	startTime := time.Now()
+
 	articles, err := s.FindCrimeArticles(ctx, cityCfg)
 	if err != nil {
+		s.logger.Error("Failed to find articles",
+			logger.String("city", cityCfg.Name),
+			logger.Error(err),
+		)
 		return fmt.Errorf("find articles: %w", err)
 	}
 
@@ -265,25 +339,68 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 	skipped := 0
 	errors := 0
 
-	for _, article := range articles {
+	s.logger.Debug("Processing articles",
+		logger.String("city", cityCfg.Name),
+		logger.Int("article_count", len(articles)),
+	)
+
+	for i, article := range articles {
+		articleStartTime := time.Now()
+
 		// Additional crime filtering
 		if !s.isCrimeRelated(article) {
+			s.logger.Debug("Article skipped - not crime related",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.String("title", article.Title),
+				logger.Int("article_index", i+1),
+			)
 			skipped++
 			continue
 		}
 
 		// Check if already posted
-		if s.dedup.HasPosted(ctx, article.ID) {
+		dedupStartTime := time.Now()
+		alreadyPosted := s.dedup.HasPosted(ctx, article.ID)
+		dedupDuration := time.Since(dedupStartTime)
+
+		s.logger.Debug("Deduplication check",
+			logger.String("article_id", article.ID),
+			logger.String("city", cityCfg.Name),
+			logger.Bool("already_posted", alreadyPosted),
+			logger.Duration("dedup_duration", dedupDuration),
+		)
+
+		if alreadyPosted {
+			s.logger.Debug("Article skipped - already posted",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.String("title", article.Title),
+			)
 			skipped++
 			continue
 		}
 
 		// Rate limit
+		rateLimitStartTime := time.Now()
 		if err := s.limiter.Wait(ctx); err != nil {
+			s.logger.Error("Rate limit wait failed",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.Error(err),
+			)
 			return fmt.Errorf("rate limit wait: %w", err)
 		}
+		rateLimitDuration := time.Since(rateLimitStartTime)
+
+		s.logger.Debug("Rate limit wait completed",
+			logger.String("article_id", article.ID),
+			logger.String("city", cityCfg.Name),
+			logger.Duration("rate_limit_wait_duration", rateLimitDuration),
+		)
 
 		// Post to Drupal
+		postStartTime := time.Now()
 		if err := s.drupal.PostArticle(ctx, drupal.ArticleRequest{
 			Title:       article.Title,
 			Body:        article.Content,
@@ -292,21 +409,64 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 			GroupType:   s.config.Service.GroupType,
 			ContentType: s.config.Service.ContentType,
 		}); err != nil {
-			log.Printf("Error posting article %s: %v", article.ID, err)
+			postDuration := time.Since(postStartTime)
+			articleDuration := time.Since(articleStartTime)
+			s.logger.Error("Error posting article",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.String("title", article.Title),
+				logger.String("url", article.URL),
+				logger.Duration("post_duration", postDuration),
+				logger.Duration("article_processing_duration", articleDuration),
+				logger.Error(err),
+			)
 			errors++
 			continue
 		}
+		postDuration := time.Since(postStartTime)
 
 		// Mark as posted
+		markStartTime := time.Now()
 		if err := s.dedup.MarkPosted(ctx, article.ID); err != nil {
-			log.Printf("Warning: failed to mark article %s as posted: %v", article.ID, err)
+			markDuration := time.Since(markStartTime)
+			s.logger.Warn("Failed to mark article as posted",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.Duration("mark_duration", markDuration),
+				logger.Error(err),
+			)
+		} else {
+			markDuration := time.Since(markStartTime)
+			s.logger.Debug("Article marked as posted",
+				logger.String("article_id", article.ID),
+				logger.String("city", cityCfg.Name),
+				logger.Duration("mark_duration", markDuration),
+			)
 		}
 
 		posted++
-		log.Printf("Posted article: %s (from %s)", article.Title, cityCfg.Name)
+		articleDuration := time.Since(articleStartTime)
+		s.logger.Info("Posted article",
+			logger.String("title", article.Title),
+			logger.String("city", cityCfg.Name),
+			logger.String("article_id", article.ID),
+			logger.String("url", article.URL),
+			logger.Duration("post_duration", postDuration),
+			logger.Duration("article_processing_duration", articleDuration),
+			logger.Int("article_index", i+1),
+			logger.Int("total_articles", len(articles)),
+		)
 	}
 
-	log.Printf("City %s: posted=%d, skipped=%d, errors=%d", cityCfg.Name, posted, skipped, errors)
+	totalDuration := time.Since(startTime)
+	s.logger.Info("City processing completed",
+		logger.String("city", cityCfg.Name),
+		logger.Int("posted", posted),
+		logger.Int("skipped", skipped),
+		logger.Int("errors", errors),
+		logger.Int("total_articles", len(articles)),
+		logger.Duration("total_duration", totalDuration),
+	)
 	return nil
 }
 
@@ -316,7 +476,9 @@ func (s *Service) Run(ctx context.Context) error {
 
 	// Run immediately on start
 	if err := s.runOnce(ctx); err != nil {
-		log.Printf("Initial run error: %v", err)
+		s.logger.Error("Initial run error",
+			logger.Error(err),
+		)
 	}
 
 	for {
@@ -325,19 +487,44 @@ func (s *Service) Run(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if err := s.runOnce(ctx); err != nil {
-				log.Printf("Run error: %v", err)
+				s.logger.Error("Run error",
+					logger.Error(err),
+				)
 			}
 		}
 	}
 }
 
 func (s *Service) runOnce(ctx context.Context) error {
-	log.Println("Starting article sync...")
+	startTime := time.Now()
+	s.logger.Info("Starting article sync",
+		logger.Int("city_count", len(s.config.Cities)),
+	)
 
-	for _, cityCfg := range s.config.Cities {
+	for i, cityCfg := range s.config.Cities {
+		cityStartTime := time.Now()
+		s.logger.Debug("Processing city",
+			logger.String("city", cityCfg.Name),
+			logger.Int("city_index", i+1),
+			logger.Int("total_cities", len(s.config.Cities)),
+		)
+
 		if err := s.ProcessCity(ctx, cityCfg); err != nil {
-			log.Printf("Error processing city %s: %v", cityCfg.Name, err)
+			cityDuration := time.Since(cityStartTime)
+			s.logger.Error("Error processing city",
+				logger.String("city", cityCfg.Name),
+				logger.Int("city_index", i+1),
+				logger.Duration("city_duration", cityDuration),
+				logger.Error(err),
+			)
 			// Continue with other cities
+		} else {
+			cityDuration := time.Since(cityStartTime)
+			s.logger.Debug("City processing completed",
+				logger.String("city", cityCfg.Name),
+				logger.Int("city_index", i+1),
+				logger.Duration("city_duration", cityDuration),
+			)
 		}
 	}
 
@@ -346,7 +533,11 @@ func (s *Service) runOnce(ctx context.Context) error {
 	s.lastCheckTS = time.Now()
 	s.mu.Unlock()
 
-	log.Println("Article sync completed")
+	totalDuration := time.Since(startTime)
+	s.logger.Info("Article sync completed",
+		logger.Int("city_count", len(s.config.Cities)),
+		logger.Duration("total_duration", totalDuration),
+	)
 	return nil
 }
 

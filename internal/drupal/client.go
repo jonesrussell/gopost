@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/gopost/integration/internal/logger"
 )
 
 type Client struct {
 	baseURL string
 	token   string
 	client  *http.Client
+	logger  logger.Logger
 }
 
 type ArticleRequest struct {
@@ -58,7 +61,7 @@ type DrupalError struct {
 	Detail string `json:"detail"`
 }
 
-func NewClient(baseURL, token string, skipTLSVerify bool) (*Client, error) {
+func NewClient(baseURL, token string, skipTLSVerify bool, log logger.Logger) (*Client, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("drupal URL is required")
 	}
@@ -77,16 +80,28 @@ func NewClient(baseURL, token string, skipTLSVerify bool) (*Client, error) {
 				InsecureSkipVerify: true,
 			},
 		}
+		log.Warn("TLS certificate verification is disabled",
+			logger.String("base_url", baseURL),
+			logger.String("component", "drupal_client"),
+		)
 	}
 
 	return &Client{
 		baseURL: baseURL,
 		token:   token,
 		client:  client,
+		logger:  log,
 	}, nil
 }
 
 func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
+	startTime := time.Now()
+	
+	// Add method-level context
+	methodLogger := c.logger.With(
+		logger.String("method", "PostArticle"),
+	)
+
 	drupalArticle := DrupalArticle{}
 	drupalArticle.Data.Type = req.ContentType
 	drupalArticle.Data.Attributes.Title = req.Title
@@ -97,6 +112,11 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 
 	payload, err := json.Marshal(drupalArticle)
 	if err != nil {
+		methodLogger.Error("Failed to marshal article payload",
+			logger.String("title", req.Title),
+			logger.String("content_type", req.ContentType),
+			logger.Error(err),
+		)
 		return fmt.Errorf("marshal payload: %w", err)
 	}
 
@@ -111,8 +131,23 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		endpoint = fmt.Sprintf("%s/jsonapi/node/%s", c.baseURL, contentType)
 	}
 
+	methodLogger.Debug("Posting article to Drupal",
+		logger.String("endpoint", endpoint),
+		logger.String("title", req.Title),
+		logger.String("content_type", req.ContentType),
+		logger.String("group_type", req.GroupType),
+		logger.String("group_id", req.GroupID),
+		logger.String("url", req.URL),
+		logger.Int("payload_size", len(payload)),
+	)
+
 	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(payload))
 	if err != nil {
+		methodLogger.Error("Failed to create HTTP request",
+			logger.String("endpoint", endpoint),
+			logger.String("title", req.Title),
+			logger.Error(err),
+		)
 		return fmt.Errorf("create request: %w", err)
 	}
 
@@ -120,27 +155,79 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
 	httpReq.Header.Set("Accept", "application/vnd.api+json")
 
+	requestStartTime := time.Now()
 	resp, err := c.client.Do(httpReq)
+	requestDuration := time.Since(requestStartTime)
+	
 	if err != nil {
+		methodLogger.Error("HTTP request failed",
+			logger.String("endpoint", endpoint),
+			logger.String("title", req.Title),
+			logger.Duration("request_duration", requestDuration),
+			logger.Error(err),
+		)
 		return fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		var drupalResp DrupalResponse
-		if err := json.NewDecoder(resp.Body).Decode(&drupalResp); err == nil && len(drupalResp.Errors) > 0 {
+		decodeErr := json.NewDecoder(resp.Body).Decode(&drupalResp)
+		
+		if decodeErr == nil && len(drupalResp.Errors) > 0 {
+			errorDetail := drupalResp.Errors[0]
+			methodLogger.Error("Drupal API error",
+				logger.String("endpoint", endpoint),
+				logger.String("article_title", req.Title),
+				logger.Int("status_code", resp.StatusCode),
+				logger.String("status", resp.Status),
+				logger.String("error_status", errorDetail.Status),
+				logger.String("error_title", errorDetail.Title),
+				logger.String("error_detail", errorDetail.Detail),
+				logger.Duration("request_duration", requestDuration),
+			)
 			return fmt.Errorf("drupal API error (%d): %s - %s",
 				resp.StatusCode,
-				drupalResp.Errors[0].Title,
-				drupalResp.Errors[0].Detail)
+				errorDetail.Title,
+				errorDetail.Detail)
 		}
+		
+		methodLogger.Error("Drupal API error",
+			logger.String("endpoint", endpoint),
+			logger.String("article_title", req.Title),
+			logger.Int("status_code", resp.StatusCode),
+			logger.String("status", resp.Status),
+			logger.Duration("request_duration", requestDuration),
+			logger.Error(decodeErr),
+		)
 		return fmt.Errorf("drupal API error: %d %s", resp.StatusCode, resp.Status)
 	}
 
 	var drupalResp DrupalResponse
 	if err := json.NewDecoder(resp.Body).Decode(&drupalResp); err != nil {
+		totalDuration := time.Since(startTime)
+		methodLogger.Error("Failed to decode Drupal response",
+			logger.String("endpoint", endpoint),
+			logger.String("article_title", req.Title),
+			logger.Int("status_code", resp.StatusCode),
+			logger.Duration("request_duration", requestDuration),
+			logger.Duration("total_duration", totalDuration),
+			logger.Error(err),
+		)
 		return fmt.Errorf("decode response: %w", err)
 	}
+
+	totalDuration := time.Since(startTime)
+	methodLogger.Info("Successfully posted article to Drupal",
+		logger.String("endpoint", endpoint),
+		logger.String("article_title", req.Title),
+		logger.String("content_type", req.ContentType),
+		logger.String("drupal_id", drupalResp.Data.ID),
+		logger.String("drupal_type", drupalResp.Data.Type),
+		logger.Int("status_code", resp.StatusCode),
+		logger.Duration("request_duration", requestDuration),
+		logger.Duration("total_duration", totalDuration),
+	)
 
 	return nil
 }
