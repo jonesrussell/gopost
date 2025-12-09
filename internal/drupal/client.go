@@ -42,7 +42,7 @@ type DrupalArticle struct {
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup struct {
-				Data struct {
+				Data []struct {
 					Type string `json:"type"`
 					ID   string `json:"id"`
 				} `json:"data"`
@@ -166,8 +166,16 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	if req.Body != "" {
 		drupalArticle.Data.Attributes.Body = req.Body
 	}
-	drupalArticle.Data.Relationships.FieldGroup.Data.Type = req.GroupType
-	drupalArticle.Data.Relationships.FieldGroup.Data.ID = req.GroupID
+	// field_group expects an array of group references (even if only one)
+	drupalArticle.Data.Relationships.FieldGroup.Data = []struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+	}{
+		{
+			Type: req.GroupType,
+			ID:   req.GroupID,
+		},
+	}
 	// Note: field_url is a relationship field in Drupal and requires a UUID reference
 	// For now, we're omitting it. If needed, we'd need to create/find the URL entity first.
 
@@ -180,6 +188,13 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		)
 		return fmt.Errorf("marshal payload: %w", err)
 	}
+
+	// Debug: Log the payload to verify group relationship
+	methodLogger.Debug("Article payload prepared",
+		logger.String("group_type", req.GroupType),
+		logger.String("group_id", req.GroupID),
+		logger.String("payload", string(payload)),
+	)
 
 	// Construct endpoint URL
 	endpoint := fmt.Sprintf("%s/jsonapi/node/article", c.baseURL)
@@ -265,19 +280,26 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
+		// Read the full response body for debugging
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
 		var drupalResp DrupalResponse
-		decodeErr := json.NewDecoder(resp.Body).Decode(&drupalResp)
+		decodeErr := json.NewDecoder(bytes.NewReader(bodyBytes)).Decode(&drupalResp)
 
 		if decodeErr == nil && len(drupalResp.Errors) > 0 {
 			errorDetail := drupalResp.Errors[0]
 			methodLogger.Error("Drupal API error",
 				logger.String("endpoint", endpoint),
 				logger.String("article_title", req.Title),
+				logger.String("group_type", req.GroupType),
+				logger.String("group_id", req.GroupID),
 				logger.Int("status_code", resp.StatusCode),
 				logger.String("status", resp.Status),
 				logger.String("error_status", errorDetail.Status),
 				logger.String("error_title", errorDetail.Title),
 				logger.String("error_detail", errorDetail.Detail),
+				logger.String("response_body", bodyStr),
 				logger.Duration("request_duration", requestDuration),
 			)
 			return fmt.Errorf("drupal API error (%d): %s - %s",

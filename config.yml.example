@@ -47,7 +47,7 @@ service:
 cities:
   - name: "sudbury_com"
     index: "sudbury_com_articles"  # Optional, defaults to {name}_articles
-    group_id: "uuid-of-sudbury-group"  # Drupal group UUID
+    group_id: "550e8400-e29b-41d4-a716-446655440000"  # Drupal group UUID (required - must be a UUID, not numeric ID)
   # Add more cities as needed
   # - name: "toronto_com"
   #   index: "toronto_com_articles"
