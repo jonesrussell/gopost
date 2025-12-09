@@ -1,3 +1,9 @@
+# Application debug mode
+# When true: uses development logger (human-readable, colorized output)
+# When false: uses production logger (JSON format, optimized for performance)
+# Can be overridden with APP_DEBUG environment variable
+debug: false
+
 elasticsearch:
   url: "http://localhost:9200"
   username: ""  # Optional
