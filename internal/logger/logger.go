@@ -88,26 +88,26 @@ func NewLogger(debug bool) (Logger, error) {
 	if debug {
 		// Create a custom development config with prettier formatting
 		config := zap.NewDevelopmentConfig()
-		
+
 		// Enable color output for log levels
 		config.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		
+
 		// Use ISO8601 time format (readable: 2025-12-09T19:30:00.000Z)
 		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-		
+
 		// Use short caller format (file:line)
 		config.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
-		
+
 		// Use console encoder for pretty, human-readable output
 		config.Encoding = "console"
-		
+
 		// Set development defaults
 		config.Development = true
 		config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
-		
+
 		// Disable sampling in development for all logs to be visible
 		config.Sampling = nil
-		
+
 		z, err = config.Build(
 			// Add caller skip to show the actual calling function
 			zap.AddCallerSkip(0),
@@ -138,4 +138,3 @@ func NewNopLogger() Logger {
 // Field is a type alias for zapcore.Field.
 // It represents a key-value pair that can be attached to a log entry.
 type Field = zapcore.Field
-

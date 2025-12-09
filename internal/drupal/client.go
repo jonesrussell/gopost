@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,7 +48,7 @@ type DrupalArticle struct {
 		Attributes struct {
 			Title    string                 `json:"title"`
 			Body     string                 `json:"body,omitempty"`
-			FieldURL map[string]interface{} `json:"field_url,omitempty"`
+			FieldURL map[string]any `json:"field_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup struct {
@@ -73,10 +74,10 @@ type DrupalError struct {
 
 func NewClient(baseURL, username, token, authMethod string, skipTLSVerify bool, log logger.Logger) (*Client, error) {
 	if baseURL == "" {
-		return nil, fmt.Errorf("drupal URL is required")
+		return nil, errors.New("drupal URL is required")
 	}
 	if token == "" {
-		return nil, fmt.Errorf("drupal token is required")
+		return nil, errors.New("drupal token is required")
 	}
 
 	client := &http.Client{
@@ -106,36 +107,42 @@ func NewClient(baseURL, username, token, authMethod string, skipTLSVerify bool, 
 	}, nil
 }
 
+// setAuthHeaders sets the authentication headers required for Drupal REST API
+// This includes API-KEY, Authorization, and AUTH-METHOD headers
+func (c *Client) setAuthHeaders(req *http.Request) {
+	// REST API Authentication module expects API-KEY header with base64(username:api-key)
+	// Also include Authorization header with Basic format as miniOrange requires it
+	var apiKeyValue string
+	if c.username != "" {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
+	} else {
+		// Fallback: if no username, just use token (base64 encoded)
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
+	}
+
+	//nolint:canonicalheader // Drupal REST API requires exact header names
+	req.Header.Set("API-KEY", apiKeyValue)
+	req.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+
+	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
+	if c.authMethod != "" {
+		//nolint:canonicalheader // miniOrange requires exact header name
+		req.Header.Set("AUTH-METHOD", c.authMethod)
+	}
+}
+
 // getCSRFToken fetches a CSRF token from Drupal's session/token endpoint
 // Note: The session/token endpoint may require Basic Auth, while JSON:API uses API-KEY header
 func (c *Client) getCSRFToken(ctx context.Context) (string, error) {
 	tokenURL := fmt.Sprintf("%s/session/token", c.baseURL)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", tokenURL, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, tokenURL, http.NoBody)
 	if err != nil {
 		return "", fmt.Errorf("create CSRF token request: %w", err)
 	}
 
 	httpReq.Header.Set("Accept", "application/json")
-
-	// Use API-KEY authentication for session/token endpoint
-	var apiKeyValue string
-	if c.username != "" {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		// Set Authorization header with Basic format (required by miniOrange)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	} else {
-		// Fallback: if no username, just use token (base64 encoded)
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	}
-
-	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
-	if c.authMethod != "" {
-		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
-	}
+	c.setAuthHeaders(httpReq)
 
 	resp, err := c.client.Do(httpReq)
 	if err != nil {
@@ -174,7 +181,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 	// field_url is required - send as URI field in attributes
 	if req.URL != "" {
-		drupalArticle.Data.Attributes.FieldURL = map[string]interface{}{
+		drupalArticle.Data.Attributes.FieldURL = map[string]any{
 			"uri": req.URL,
 		}
 	}
@@ -237,47 +244,29 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		logger.Int("payload_size", len(payload)),
 	)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(payload))
-	if err != nil {
+	httpReq, httpErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBuffer(payload))
+	if httpErr != nil {
 		methodLogger.Error("Failed to create HTTP request",
 			logger.String("endpoint", endpoint),
 			logger.String("title", req.Title),
-			logger.Error(err),
+			logger.Error(httpErr),
 		)
-		return fmt.Errorf("create request: %w", err)
+		return fmt.Errorf("create request: %w", httpErr)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/vnd.api+json")
 	httpReq.Header.Set("Accept", "application/vnd.api+json")
-
-	// REST API Authentication module expects API-KEY header with base64(username:api-key)
-	// Also include Authorization header with Basic format as miniOrange requires it
-	var apiKeyValue string
-	if c.username != "" {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		// Set Authorization header with Basic format (required by miniOrange)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	} else {
-		// Fallback: if no username, just use token (base64 encoded)
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	}
-
-	// Include AUTH-METHOD header if configured (required by miniOrange REST API Authentication)
-	if c.authMethod != "" {
-		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
-	}
+	c.setAuthHeaders(httpReq)
 
 	// Fetch and include CSRF token for POST requests
-	csrfToken, err := c.getCSRFToken(ctx)
-	if err != nil {
+	csrfToken, csrfErr := c.getCSRFToken(ctx)
+	if csrfErr != nil {
 		methodLogger.Warn("Failed to fetch CSRF token, proceeding without it",
 			logger.String("endpoint", endpoint),
-			logger.Error(err),
+			logger.Error(csrfErr),
 		)
 	} else {
+		//nolint:canonicalheader // Drupal requires exact header name
 		httpReq.Header.Set("X-CSRF-Token", csrfToken)
 		methodLogger.Debug("Included CSRF token in request",
 			logger.String("endpoint", endpoint),
@@ -299,7 +288,8 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
+	const badRequestStatusCode = 400
+	if resp.StatusCode >= badRequestStatusCode {
 		// Read the full response body for debugging
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		bodyStr := string(bodyBytes)
@@ -349,7 +339,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 
 	var drupalResp DrupalResponse
-	if err := json.NewDecoder(resp.Body).Decode(&drupalResp); err != nil {
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&drupalResp); decodeErr != nil {
 		totalDuration := time.Since(startTime)
 		methodLogger.Error("Failed to decode Drupal response",
 			logger.String("endpoint", endpoint),
@@ -357,9 +347,9 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			logger.Int("status_code", resp.StatusCode),
 			logger.Duration("request_duration", requestDuration),
 			logger.Duration("total_duration", totalDuration),
-			logger.Error(err),
+			logger.Error(decodeErr),
 		)
-		return fmt.Errorf("decode response: %w", err)
+		return fmt.Errorf("decode response: %w", decodeErr)
 	}
 
 	totalDuration := time.Since(startTime)
@@ -379,101 +369,73 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 
 // GetNode fetches a node by ID from Drupal JSON:API (temporary method for debugging)
 // nodeID can be either a UUID or numeric ID
-func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]interface{}, error) {
+func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]any, error) {
 	// Try UUID format first
 	endpoint := fmt.Sprintf("%s/jsonapi/node/article/%s", c.baseURL, nodeID)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	httpReq.Header.Set("Accept", "application/vnd.api+json")
+	c.setAuthHeaders(httpReq)
 
-	// Use same authentication as PostArticle
-	var apiKeyValue string
-	if c.username != "" {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	} else {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	}
-
-	if c.authMethod != "" {
-		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
-	}
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+	resp, respErr := c.client.Do(httpReq)
+	if respErr != nil {
+		return nil, fmt.Errorf("http request: %w", respErr)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("read response: %w", readErr)
 	}
 
-	if resp.StatusCode >= 400 {
+	const badRequestStatusCode = 400
+	if resp.StatusCode >= badRequestStatusCode {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	var result map[string]any
+	if decodeErr := json.Unmarshal(bodyBytes, &result); decodeErr != nil {
+		return nil, fmt.Errorf("decode response: %w", decodeErr)
 	}
 
 	return result, nil
 }
 
 // ListNodes lists articles from Drupal JSON:API (temporary method for debugging)
-func (c *Client) ListNodes(ctx context.Context, limit int) (map[string]interface{}, error) {
+func (c *Client) ListNodes(ctx context.Context, limit int) (map[string]any, error) {
 	endpoint := fmt.Sprintf("%s/jsonapi/node/article?page[limit]=%d", c.baseURL, limit)
 
-	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	httpReq.Header.Set("Accept", "application/vnd.api+json")
+	c.setAuthHeaders(httpReq)
 
-	// Use same authentication as PostArticle
-	var apiKeyValue string
-	if c.username != "" {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	} else {
-		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
-		httpReq.Header.Set("API-KEY", apiKeyValue)
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
-	}
-
-	if c.authMethod != "" {
-		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
-	}
-
-	resp, err := c.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("http request: %w", err)
+	resp, respErr := c.client.Do(httpReq)
+	if respErr != nil {
+		return nil, fmt.Errorf("http request: %w", respErr)
 	}
 	defer resp.Body.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return nil, fmt.Errorf("read response: %w", readErr)
 	}
 
-	if resp.StatusCode >= 400 {
+	const badRequestStatusCode = 400
+	if resp.StatusCode >= badRequestStatusCode {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
 	}
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &result); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
+	var result map[string]any
+	if decodeErr := json.Unmarshal(bodyBytes, &result); decodeErr != nil {
+		return nil, fmt.Errorf("decode response: %w", decodeErr)
 	}
 
 	return result, nil

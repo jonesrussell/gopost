@@ -139,4 +139,3 @@ func ByteString(key string, val []byte) Field {
 func Binary(key string, val []byte) Field {
 	return zap.Binary(key, val)
 }
-

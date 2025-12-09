@@ -33,7 +33,7 @@ func TestNewLogger(t *testing.T) {
 
 			// Test that logger can be used
 			log.Info("test message")
-			
+
 			// Test Sync (errors are acceptable in test environments)
 			_ = log.Sync()
 		})
@@ -286,4 +286,3 @@ func TestLoggerProductionVsDevelopment(t *testing.T) {
 	devLog.Debug("dev debug")
 	prodLog.Debug("prod debug")
 }
-
