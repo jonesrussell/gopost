@@ -3,13 +3,18 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/gopost/integration/internal/config"
 	"github.com/gopost/integration/internal/integration"
+	"github.com/gopost/integration/internal/logger"
+)
+
+var (
+	// version can be set at build time via -ldflags
+	version = "dev"
 )
 
 func main() {
@@ -17,14 +22,50 @@ func main() {
 	flag.StringVar(&configPath, "config", "config.yml", "Path to configuration file")
 	flag.Parse()
 
+	// Load configuration first (needed to determine debug mode)
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		// Use a temporary logger for early errors before config is loaded
+		tempLogger, _ := logger.NewLogger(true)
+		tempLogger.Error("Failed to load config",
+			logger.String("config_path", configPath),
+			logger.Error(err),
+		)
+		_ = tempLogger.Sync()
+		os.Exit(1)
 	}
 
-	service, err := integration.NewService(cfg)
+	// Create logger based on debug mode from config
+	appLogger, err := logger.NewLogger(cfg.Debug)
 	if err != nil {
-		log.Fatalf("Failed to create integration service: %v", err)
+		// Fallback to temporary logger if logger creation fails
+		tempLogger, _ := logger.NewLogger(true)
+		tempLogger.Error("Failed to create logger",
+			logger.Error(err),
+		)
+		_ = tempLogger.Sync()
+		os.Exit(1)
+	}
+	defer func() {
+		if err := appLogger.Sync(); err != nil {
+			// Can't log this error since logger might be closed
+			_ = err
+		}
+	}()
+
+	// Add service context fields to all log entries
+	appLogger = appLogger.With(
+		logger.String("service", "gopost"),
+		logger.String("version", version),
+	)
+
+	// Create integration service with logger
+	service, err := integration.NewService(cfg, appLogger)
+	if err != nil {
+		appLogger.Error("Failed to create integration service",
+			logger.Error(err),
+		)
+		os.Exit(1)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -35,15 +76,24 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	go func() {
-		<-sigChan
-		log.Println("Shutting down...")
+		sig := <-sigChan
+		appLogger.Info("Shutting down",
+			logger.String("signal", sig.String()),
+		)
 		cancel()
 	}()
 
-	log.Println("Starting integration service...")
+	appLogger.Info("Starting integration service",
+		logger.String("config_path", configPath),
+		logger.Bool("debug", cfg.Debug),
+	)
+
 	if err := service.Run(ctx); err != nil && err != context.Canceled {
-		log.Fatalf("Service error: %v", err)
+		appLogger.Error("Service error",
+			logger.Error(err),
+		)
+		os.Exit(1)
 	}
 
-	log.Println("Service stopped")
+	appLogger.Info("Service stopped")
 }
