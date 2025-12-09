@@ -1,0 +1,45 @@
+elasticsearch:
+  url: "http://localhost:9200"
+  username: ""  # Optional
+  password: ""  # Optional
+
+drupal:
+  url: "https://your-drupal-site.com"
+  token: "your-oauth-token-here"
+
+redis:
+  url: "localhost:6379"
+  password: ""  # Optional
+  db: 0
+
+service:
+  check_interval: "5m"  # How often to check for new articles
+  rate_limit_rps: 10    # Requests per second to Drupal
+  lookback_hours: 24    # How many hours back to search
+  crime_keywords:
+    - "police"
+    - "arrest"
+    - "charged"
+    - "court"
+    - "murder"
+    - "assault"
+    - "robbery"
+    - "theft"
+    - "crime"
+    - "criminal"
+    - "suspect"
+    - "victim"
+    - "investigation"
+    - "warrant"
+    - "sentence"
+  content_type: "node--article"  # Drupal content type
+  group_type: "group--crime_news"  # Drupal group type
+
+cities:
+  - name: "sudbury_com"
+    index: "sudbury_com_articles"  # Optional, defaults to {name}_articles
+    group_id: "uuid-of-sudbury-group"  # Drupal group UUID
+  # Add more cities as needed
+  # - name: "toronto_com"
+  #   index: "toronto_com_articles"
+  #   group_id: "uuid-of-toronto-group"

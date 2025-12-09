@@ -1,0 +1,139 @@
+version: '3'
+
+vars:
+  BINARY_NAME: integration
+  MAIN_PATH: ./main.go
+  BUILD_DIR: ./bin
+  DOCKER_IMAGE: gopost-integration
+  CONFIG_FILE: config.yaml
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the integration service
+    cmds:
+      - mkdir -p {{.BUILD_DIR}}
+      - go build -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PATH}}
+    generates:
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
+
+  run:
+    desc: Run the service locally
+    deps: [deps]
+    cmds:
+      - go run {{.MAIN_PATH}} -config {{.CONFIG_FILE}}
+
+  test:
+    desc: Run all tests
+    deps: [deps]
+    cmds:
+      - go test -v ./...
+
+  test:coverage:
+    desc: Run tests with coverage report
+    deps: [deps]
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - 'echo "Coverage report generated: coverage.html"'
+
+  test:race:
+    desc: Run tests with race detector
+    deps: [deps]
+    cmds:
+      - go test -race ./...
+
+  clean:
+    desc: Clean build artifacts and temporary files
+    cmds:
+      - rm -rf {{.BUILD_DIR}}
+      - rm -f coverage.out coverage.html
+      - go clean -cache -testcache -modcache
+
+  deps:
+    desc: Download and tidy dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+      - go mod verify
+
+  fmt:
+    desc: Format Go code
+    cmds:
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  lint:
+    desc: Run golangci-lint (if installed)
+    cmds:
+      - |
+        if command -v golangci-lint > /dev/null; then
+          golangci-lint run
+        else
+          echo "golangci-lint not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+        fi
+
+  check:
+    desc: Run all code quality checks (fmt, vet, lint)
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: lint
+
+  docker:build:
+    desc: Build Docker image
+    cmds:
+      - docker build -t {{.DOCKER_IMAGE}} .
+
+  docker:up:
+    desc: Start services with Docker Compose
+    cmds:
+      - docker compose up -d
+
+  docker:down:
+    desc: Stop services
+    cmds:
+      - docker compose down
+
+  docker:logs:
+    desc: View integration service logs
+    cmds:
+      - docker compose logs -f integration
+
+  docker:restart:
+    desc: Restart Docker services
+    cmds:
+      - task: docker:down
+      - task: docker:up
+
+  dev:
+    desc: Run in development mode with file watching (requires air or similar)
+    cmds:
+      - |
+        if command -v air > /dev/null; then
+          air
+        else
+          echo "air not installed. Install with: go install github.com/cosmtrek/air@latest"
+          task: run
+        fi
+
+  install:
+    desc: Install the binary to $GOPATH/bin
+    cmds:
+      - go install {{.MAIN_PATH}}
+
+  all:
+    desc: Run build, test, and check
+    cmds:
+      - task: deps
+      - task: check
+      - task: test
+      - task: build

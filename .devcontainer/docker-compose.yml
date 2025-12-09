@@ -1,0 +1,11 @@
+services:
+
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VARIANT: 1.25-bookworm
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity

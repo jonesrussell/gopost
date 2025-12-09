@@ -1,0 +1,39 @@
+# Binaries
+integration
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Config files with secrets
+config.yaml
+.env
+
+# Build artifacts
+dist/
+build/
+bin/
+
+# Coverage files
+coverage.out
+coverage.html

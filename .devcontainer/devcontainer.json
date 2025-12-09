@@ -1,0 +1,64 @@
+{
+	"name": "GoPost Dev",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "app",
+	"workspaceFolder": "/workspaces/gopost",
+	
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"humao.rest-client",
+				"golang.go",
+				"ms-azuretools.vscode-docker"
+			],
+			"settings": {
+				"go.useLanguageServer": true,
+				"go.gopath": "/go",
+				"go.toolsManagement.autoUpdate": true
+			}
+		}
+	},
+	
+	"features": {
+		"ghcr.io/devcontainers/features/common-utils:2": {
+			"installZsh": true,
+			"configureZshAsDefaultShell": true,
+			"installOhMyZsh": true,
+			"installOhMyZshConfig": true,
+			"upgradePackages": false,
+			"username": "automatic",
+			"userUid": "automatic",
+			"userGid": "automatic"
+		},
+		"ghcr.io/devcontainers/features/docker-outside-of-docker:1": {
+			"moby": true,
+			"installDockerBuildx": true,
+			"version": "latest",
+			"dockerDashComposeVersion": "v2"
+		},
+		"ghcr.io/devcontainers-extra/features/go-task:1": {
+			"version": "latest"
+		},
+		"ghcr.io/dhoeric/features/act:1": {
+			"version": "latest"
+		},
+		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {
+			"version": "latest"
+		}
+	},
+	
+	"mounts": [
+		"source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,type=bind,consistency=cached"
+	],
+	
+	"forwardPorts": [8085],
+	"portsAttributes": {
+		"8085": {
+			"label": "GoPost Admin"
+		}
+	},
+	
+	"postCreateCommand": "go mod download",
+	"remoteUser": "vscode",
+	"runArgs": ["--env-file","../.env"]
+}

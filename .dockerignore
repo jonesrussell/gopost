@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Build artifacts
+integration
+*.exe
+*.test
+
+# Config (will be mounted)
+config.yaml
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Dev container
+.devcontainer
+
+# Test files
+*_test.go
+
+# Misc
+.env
+.DS_Store
