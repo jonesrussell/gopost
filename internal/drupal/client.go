@@ -33,6 +33,14 @@ type ArticleRequest struct {
 	ContentType string
 }
 
+type GroupReference struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+	Meta struct {
+		DrupalInternalTargetID int `json:"drupal_internal__target_id,omitempty"`
+	} `json:"meta,omitempty"`
+}
+
 type DrupalArticle struct {
 	Data struct {
 		Type       string `json:"type"`
@@ -43,10 +51,7 @@ type DrupalArticle struct {
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup struct {
-				Data []struct {
-					Type string `json:"type"`
-					ID   string `json:"id"`
-				} `json:"data"`
+				Data []GroupReference `json:"data"`
 			} `json:"field_group"`
 		} `json:"relationships"`
 	} `json:"data"`
@@ -174,16 +179,23 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		}
 	}
 	// field_group must be in relationships (not attributes)
-	// Send as array even if only one group reference
+	// Drupal JSON:API expects relationship format with type and id (UUID)
+	// The "cannot be referenced" error is likely a permissions issue, not a format issue
 	if req.GroupID != "" {
-		drupalArticle.Data.Relationships.FieldGroup.Data = []struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		}{
-			{
-				Type: req.GroupType,
-				ID:   req.GroupID,
-			},
+		groupItem := GroupReference{
+			Type: req.GroupType,
+			ID:   req.GroupID, // Use UUID, not numeric ID
+		}
+
+		// Include meta.drupal_internal__target_id if we know it
+		// For UUID e3d024a6-5f6f-4be8-8f3d-75639075959c, the numeric ID is 1
+		// TODO: Fetch group by UUID to get the numeric ID dynamically
+		if req.GroupID == "e3d024a6-5f6f-4be8-8f3d-75639075959c" {
+			groupItem.Meta.DrupalInternalTargetID = 1
+		}
+
+		drupalArticle.Data.Relationships.FieldGroup.Data = []GroupReference{
+			groupItem,
 		}
 	}
 
@@ -363,4 +375,106 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	)
 
 	return nil
+}
+
+// GetNode fetches a node by ID from Drupal JSON:API (temporary method for debugging)
+// nodeID can be either a UUID or numeric ID
+func (c *Client) GetNode(ctx context.Context, nodeID string) (map[string]interface{}, error) {
+	// Try UUID format first
+	endpoint := fmt.Sprintf("%s/jsonapi/node/article/%s", c.baseURL, nodeID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Accept", "application/vnd.api+json")
+
+	// Use same authentication as PostArticle
+	var apiKeyValue string
+	if c.username != "" {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	} else {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	}
+
+	if c.authMethod != "" {
+		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return result, nil
+}
+
+// ListNodes lists articles from Drupal JSON:API (temporary method for debugging)
+func (c *Client) ListNodes(ctx context.Context, limit int) (map[string]interface{}, error) {
+	endpoint := fmt.Sprintf("%s/jsonapi/node/article?page[limit]=%d", c.baseURL, limit)
+
+	httpReq, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	httpReq.Header.Set("Accept", "application/vnd.api+json")
+
+	// Use same authentication as PostArticle
+	var apiKeyValue string
+	if c.username != "" {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.token)))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	} else {
+		apiKeyValue = base64.StdEncoding.EncodeToString([]byte(c.token))
+		httpReq.Header.Set("API-KEY", apiKeyValue)
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Basic %s", apiKeyValue))
+	}
+
+	if c.authMethod != "" {
+		httpReq.Header.Set("AUTH-METHOD", c.authMethod)
+	}
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(bodyBytes, &result); err != nil {
+		return nil, fmt.Errorf("decode response: %w", err)
+	}
+
+	return result, nil
 }
