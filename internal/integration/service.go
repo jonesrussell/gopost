@@ -93,26 +93,40 @@ type Article struct {
 
 func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConfig) ([]Article, error) {
 	// Build Elasticsearch query
+	mustClauses := []map[string]interface{}{
+		{
+			"multi_match": map[string]interface{}{
+				"query":    strings.Join(s.config.Service.CrimeKeywords, " "),
+				"fields":   []string{"title^2", "content"},
+				"type":     "best_fields",
+				"operator": "or",
+			},
+		},
+	}
+	
+	// Add date filter only if lookback_hours is positive
+	if s.config.Service.LookbackHours > 0 {
+		lastCheckTS := s.getLastCheckTS()
+		lastCheckStr := lastCheckTS.Format(time.RFC3339)
+		log.Printf("Searching for articles in %s since %s (lookback: %d hours)", cityCfg.Name, lastCheckStr, s.config.Service.LookbackHours)
+		
+		mustClauses = append([]map[string]interface{}{
+			{
+				"range": map[string]interface{}{
+					"published_at": map[string]interface{}{
+						"gte": lastCheckStr,
+					},
+				},
+			},
+		}, mustClauses...)
+	} else {
+		log.Printf("Searching for articles in %s (no date filter, lookback: %d hours)", cityCfg.Name, s.config.Service.LookbackHours)
+	}
+	
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
-				"must": []map[string]interface{}{
-					{
-						"range": map[string]interface{}{
-							"published_at": map[string]interface{}{
-								"gte": s.getLastCheckTS().Format(time.RFC3339),
-							},
-						},
-					},
-					{
-						"multi_match": map[string]interface{}{
-							"query":    strings.Join(s.config.Service.CrimeKeywords, " "),
-							"fields":   []string{"title^2", "content"},
-							"type":     "best_fields",
-							"operator": "or",
-						},
-					},
-				},
+				"must": mustClauses,
 			},
 		},
 		"size": 100,
@@ -124,6 +138,10 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			},
 		},
 	}
+	
+	// Log the query for debugging
+	queryJSON, _ := json.MarshalIndent(query, "", "  ")
+	log.Printf("Elasticsearch query: %s", string(queryJSON))
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(query); err != nil {
@@ -152,6 +170,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
 			return nil, fmt.Errorf("elasticsearch error response: %s", res.Status())
 		}
+		log.Printf("Elasticsearch error details: %+v", e)
 		return nil, fmt.Errorf("elasticsearch error: %v", e)
 	}
 
@@ -181,6 +200,48 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	}
 
 	log.Printf("Found %d articles in %s (total: %d)", len(articles), cityCfg.Name, result.Hits.Total.Value)
+	
+	// If no articles found, log a sample query without keyword filter for debugging
+	if result.Hits.Total.Value == 0 && len(s.config.Service.CrimeKeywords) > 0 {
+		log.Printf("No articles found. Testing query without keyword filter to check if articles exist...")
+		testQuery := map[string]interface{}{
+			"query": map[string]interface{}{
+				"match_all": map[string]interface{}{},
+			},
+			"size": 1,
+		}
+		var testBuf bytes.Buffer
+		if err := json.NewEncoder(&testBuf).Encode(testQuery); err == nil {
+			testRes, err := s.esClient.Search(
+				s.esClient.Search.WithContext(ctx),
+				s.esClient.Search.WithIndex(index),
+				s.esClient.Search.WithBody(&testBuf),
+				s.esClient.Search.WithTrackTotalHits(true),
+			)
+			if err == nil {
+				defer testRes.Body.Close()
+				if !testRes.IsError() {
+					var testResult struct {
+						Hits struct {
+							Total struct {
+								Value int `json:"value"`
+							} `json:"total"`
+							Hits []struct {
+								Source map[string]interface{} `json:"_source"`
+							} `json:"hits"`
+						} `json:"hits"`
+					}
+					if err := json.NewDecoder(testRes.Body).Decode(&testResult); err == nil {
+						log.Printf("Index %s contains %d total articles (without filters)", index, testResult.Hits.Total.Value)
+						if len(testResult.Hits.Hits) > 0 {
+							log.Printf("Sample article fields: %+v", testResult.Hits.Hits[0].Source)
+						}
+					}
+				}
+			}
+		}
+	}
+	
 	return articles, nil
 }
 

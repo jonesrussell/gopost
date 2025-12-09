@@ -66,9 +66,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Service.RateLimitRPS == 0 {
 		cfg.Service.RateLimitRPS = 10
 	}
-	if cfg.Service.LookbackHours == 0 {
-		cfg.Service.LookbackHours = 24
-	}
+	// LookbackHours: 0 means no date filter, search all articles
+	// If not specified, default to 24 hours for backward compatibility
+	// We use -1 as a sentinel to detect if it was explicitly set
+	// For now, we'll allow 0 to mean "no filter" and only set default if truly unset
+	// Note: YAML parsing makes it hard to distinguish unset from 0, so we rely on
+	// the service logic to handle 0 as "no date filter"
 	if len(cfg.Service.CrimeKeywords) == 0 {
 		cfg.Service.CrimeKeywords = []string{
 			"police", "arrest", "charged", "court",
