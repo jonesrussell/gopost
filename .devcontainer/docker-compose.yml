@@ -13,6 +13,9 @@ services:
       - redis
     environment:
       - REDIS_URL=redis:6379
+    extra_hosts:
+      # Map ddev hostname to host machine for access from container
+      - "streetcode.ddev.site:host-gateway"
 
   redis:
     image: redis:8.4-alpine

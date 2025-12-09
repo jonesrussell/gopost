@@ -3,6 +3,7 @@ package drupal
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -57,7 +58,7 @@ type DrupalError struct {
 	Detail string `json:"detail"`
 }
 
-func NewClient(baseURL, token string) (*Client, error) {
+func NewClient(baseURL, token string, skipTLSVerify bool) (*Client, error) {
 	if baseURL == "" {
 		return nil, fmt.Errorf("drupal URL is required")
 	}
@@ -65,12 +66,23 @@ func NewClient(baseURL, token string) (*Client, error) {
 		return nil, fmt.Errorf("drupal token is required")
 	}
 
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Skip TLS verification in development mode
+	if skipTLSVerify {
+		client.Transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		}
+	}
+
 	return &Client{
 		baseURL: baseURL,
 		token:   token,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client:  client,
 	}, nil
 }
 

@@ -23,8 +23,9 @@ type ElasticsearchConfig struct {
 }
 
 type DrupalConfig struct {
-	URL   string `yaml:"url"`
-	Token string `yaml:"token"`
+	URL           string `yaml:"url"`
+	Token         string `yaml:"token"`
+	SkipTLSVerify bool   `yaml:"skip_tls_verify"` // Skip TLS certificate verification (development only)
 }
 
 type RedisConfig struct {

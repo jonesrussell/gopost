@@ -44,7 +44,7 @@ func NewService(cfg *config.Config) (*Service, error) {
 	}
 
 	// Initialize Drupal client
-	drupalClient, err := drupal.NewClient(cfg.Drupal.URL, cfg.Drupal.Token)
+	drupalClient, err := drupal.NewClient(cfg.Drupal.URL, cfg.Drupal.Token, cfg.Drupal.SkipTLSVerify)
 	if err != nil {
 		return nil, fmt.Errorf("drupal client: %w", err)
 	}
@@ -85,9 +85,9 @@ func NewService(cfg *config.Config) (*Service, error) {
 type Article struct {
 	ID          string    `json:"id"`
 	Title       string    `json:"title"`
-	Content     string    `json:"content"`
-	URL         string    `json:"url"`
-	PublishedAt time.Time `json:"published_at"`
+	Content     string    `json:"body"`           // Elasticsearch uses "body" not "content"
+	URL         string    `json:"canonical_url"`  // Elasticsearch uses "canonical_url" not "url"
+	PublishedAt time.Time `json:"published_date"` // Elasticsearch uses "published_date" not "published_at"
 	Source      string    `json:"source"`
 }
 
@@ -97,23 +97,23 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		{
 			"multi_match": map[string]interface{}{
 				"query":    strings.Join(s.config.Service.CrimeKeywords, " "),
-				"fields":   []string{"title^2", "content"},
+				"fields":   []string{"title^2", "body"}, // Use "body" instead of "content"
 				"type":     "best_fields",
 				"operator": "or",
 			},
 		},
 	}
-	
+
 	// Add date filter only if lookback_hours is positive
 	if s.config.Service.LookbackHours > 0 {
 		lastCheckTS := s.getLastCheckTS()
 		lastCheckStr := lastCheckTS.Format(time.RFC3339)
 		log.Printf("Searching for articles in %s since %s (lookback: %d hours)", cityCfg.Name, lastCheckStr, s.config.Service.LookbackHours)
-		
+
 		mustClauses = append([]map[string]interface{}{
 			{
 				"range": map[string]interface{}{
-					"published_at": map[string]interface{}{
+					"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
 						"gte": lastCheckStr,
 					},
 				},
@@ -122,7 +122,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	} else {
 		log.Printf("Searching for articles in %s (no date filter, lookback: %d hours)", cityCfg.Name, s.config.Service.LookbackHours)
 	}
-	
+
 	query := map[string]interface{}{
 		"query": map[string]interface{}{
 			"bool": map[string]interface{}{
@@ -132,13 +132,13 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		"size": 100,
 		"sort": []map[string]interface{}{
 			{
-				"published_at": map[string]interface{}{
+				"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
 					"order": "desc",
 				},
 			},
 		},
 	}
-	
+
 	// Log the query for debugging
 	queryJSON, _ := json.MarshalIndent(query, "", "  ")
 	log.Printf("Elasticsearch query: %s", string(queryJSON))
@@ -200,7 +200,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	}
 
 	log.Printf("Found %d articles in %s (total: %d)", len(articles), cityCfg.Name, result.Hits.Total.Value)
-	
+
 	// If no articles found, log a sample query without keyword filter for debugging
 	if result.Hits.Total.Value == 0 && len(s.config.Service.CrimeKeywords) > 0 {
 		log.Printf("No articles found. Testing query without keyword filter to check if articles exist...")
@@ -241,7 +241,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			}
 		}
 	}
-	
+
 	return articles, nil
 }
 
