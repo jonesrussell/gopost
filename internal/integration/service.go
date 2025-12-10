@@ -29,7 +29,7 @@ const (
 
 // Timeout constants for external operations
 const (
-	esQueryTimeout   = 30 * time.Second
+	esQueryTimeout    = 30 * time.Second
 	drupalPostTimeout = 30 * time.Second
 	redisTimeout      = 5 * time.Second
 )
