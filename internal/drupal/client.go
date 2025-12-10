@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -189,17 +190,11 @@ func (c *Client) getCSRFToken(ctx context.Context) (string, error) {
 	return csrfToken, nil
 }
 
-func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
-	startTime := time.Now()
-
-	// Add method-level context
-	methodLogger := c.logger.With(
-		logger.String("method", "PostArticle"),
-	)
-
-	drupalArticle := DrupalArticle{}
+// mapArticleFields maps ArticleRequest fields to DrupalArticle attributes
+func (c *Client) mapArticleFields(req ArticleRequest, drupalArticle *DrupalArticle) {
 	drupalArticle.Data.Type = req.ContentType
 	drupalArticle.Data.Attributes.Title = req.Title
+
 	if req.Body != "" {
 		// Drupal body field requires value and format structure
 		drupalArticle.Data.Attributes.Body = map[string]any{
@@ -207,12 +202,14 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			"format": "full_html", // Use full_html format to preserve HTML content
 		}
 	}
+
 	// field_url is required - send as URI field in attributes
 	if req.URL != "" {
 		drupalArticle.Data.Attributes.FieldURL = map[string]any{
 			"uri": req.URL,
 		}
 	}
+
 	// Map additional fields from Elasticsearch
 	if req.ExternalID != "" {
 		drupalArticle.Data.Attributes.FieldExternalID = req.ExternalID
@@ -237,7 +234,7 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 	if req.WordCount > 0 {
 		// Drupal may expect word_count as string, convert to string
-		drupalArticle.Data.Attributes.FieldWordCount = fmt.Sprintf("%d", req.WordCount)
+		drupalArticle.Data.Attributes.FieldWordCount = strconv.Itoa(req.WordCount)
 	}
 	if req.Category != "" {
 		drupalArticle.Data.Attributes.FieldCategory = req.Category
@@ -257,6 +254,19 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		// Drupal expects ISO8601 format (e.g., "2025-12-09T00:00:00Z")
 		drupalArticle.Data.Attributes.FieldPublishedDate = req.PublishedDate.Format(time.RFC3339)
 	}
+}
+
+func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
+	startTime := time.Now()
+
+	// Add method-level context
+	methodLogger := c.logger.With(
+		logger.String("method", "PostArticle"),
+	)
+
+	drupalArticle := DrupalArticle{}
+	c.mapArticleFields(req, &drupalArticle)
+
 	// field_group is optional - only include if GroupID is provided
 	// Drupal JSON:API expects relationship format with type and id (UUID)
 	if req.GroupID != "" && req.GroupType != "" {

@@ -264,7 +264,8 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	}
 
 	articles := make([]Article, 0, len(result.Hits.Hits))
-	for _, hit := range result.Hits.Hits {
+	for i := range result.Hits.Hits {
+		hit := &result.Hits.Hits[i]
 		// Use Elasticsearch _id if article doesn't have an ID
 		if hit.Source.ID == "" {
 			hit.Source.ID = hit.ID
@@ -374,11 +375,12 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 		logger.Int("article_count", len(articles)),
 	)
 
-	for i, article := range articles {
+	for i := range articles {
+		article := &articles[i]
 		articleStartTime := time.Now()
 
 		// Additional crime filtering
-		if !s.isCrimeRelated(article) {
+		if !s.isCrimeRelated(*article) {
 			s.logger.Debug("Article skipped - not crime related",
 				logger.String("article_id", article.ID),
 				logger.String("city", cityCfg.Name),

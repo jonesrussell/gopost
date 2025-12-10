@@ -19,6 +19,38 @@ var (
 	version = "dev"
 )
 
+func initializeLogger(cfg *config.Config) (logger.Logger, error) {
+	appLogger, err := logger.NewLogger(cfg.Debug)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add service context fields to all log entries
+	appLogger = appLogger.With(
+		logger.String("service", "gopost"),
+		logger.String("version", version),
+	)
+
+	return appLogger, nil
+}
+
+func handleFlushCache(service *integration.Service, appLogger logger.Logger) {
+	const flushCacheTimeout = 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), flushCacheTimeout)
+	defer cancel()
+
+	if err := service.FlushCache(ctx); err != nil {
+		appLogger.Error("Failed to flush cache",
+			logger.Error(err),
+		)
+		_ = appLogger.Sync()
+		os.Exit(1)
+	}
+
+	appLogger.Info("Cache flushed successfully")
+	_ = appLogger.Sync()
+}
+
 func main() {
 	var configPath string
 	var flushCache bool
@@ -40,7 +72,7 @@ func main() {
 	}
 
 	// Create logger based on debug mode from config
-	appLogger, err := logger.NewLogger(cfg.Debug)
+	appLogger, err := initializeLogger(cfg)
 	if err != nil {
 		// Fallback to temporary logger if logger creation fails
 		tempLogger, _ := logger.NewLogger(true)
@@ -57,12 +89,6 @@ func main() {
 		}
 	}()
 
-	// Add service context fields to all log entries
-	appLogger = appLogger.With(
-		logger.String("service", "gopost"),
-		logger.String("version", version),
-	)
-
 	// Create integration service with logger
 	service, err := integration.NewService(cfg, appLogger)
 	if err != nil {
@@ -75,20 +101,8 @@ func main() {
 
 	// Handle flush-cache flag
 	if flushCache {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		appLogger.Info("Flushing Redis deduplication cache")
-		if flushErr := service.FlushCache(ctx); flushErr != nil {
-			appLogger.Error("Failed to flush cache",
-				logger.Error(flushErr),
-			)
-			_ = appLogger.Sync()
-			os.Exit(1)
-		}
-		appLogger.Info("Cache flushed successfully")
-		_ = appLogger.Sync()
-		os.Exit(0)
+		handleFlushCache(service, appLogger)
+		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

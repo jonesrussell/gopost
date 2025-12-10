@@ -130,7 +130,8 @@ func (t *Tracker) FlushAll(ctx context.Context) error {
 	for {
 		var keys []string
 		var err error
-		keys, cursor, err = t.client.Scan(ctx, cursor, pattern, 100).Result()
+		const scanBatchSize = 100
+		keys, cursor, err = t.client.Scan(ctx, cursor, pattern, scanBatchSize).Result()
 		if err != nil {
 			t.logger.Error("Redis error scanning for keys",
 				logger.String("pattern", pattern),
@@ -140,13 +141,13 @@ func (t *Tracker) FlushAll(ctx context.Context) error {
 		}
 
 		if len(keys) > 0 {
-			deleted, err := t.client.Del(ctx, keys...).Result()
-			if err != nil {
+			deleted, delErr := t.client.Del(ctx, keys...).Result()
+			if delErr != nil {
 				t.logger.Error("Redis error deleting keys",
 					logger.Int("key_count", len(keys)),
-					logger.Error(err),
+					logger.Error(delErr),
 				)
-				return fmt.Errorf("delete keys: %w", err)
+				return fmt.Errorf("delete keys: %w", delErr)
 			}
 			deletedCount += int(deleted)
 		}
