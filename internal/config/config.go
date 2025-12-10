@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -57,16 +58,16 @@ type CityConfig struct {
 // Validate checks if the configuration is valid and returns an error if not.
 func (c *Config) Validate() error {
 	if c.Elasticsearch.URL == "" {
-		return fmt.Errorf("elasticsearch.url is required")
+		return errors.New("elasticsearch.url is required")
 	}
 	if c.Drupal.URL == "" {
-		return fmt.Errorf("drupal.url is required")
+		return errors.New("drupal.url is required")
 	}
 	if c.Drupal.Token == "" {
-		return fmt.Errorf("drupal.token is required")
+		return errors.New("drupal.token is required")
 	}
 	if c.Redis.URL == "" {
-		return fmt.Errorf("redis.url is required")
+		return errors.New("redis.url is required")
 	}
 	if c.Service.RateLimitRPS <= 0 {
 		return fmt.Errorf("service.rate_limit_rps must be positive, got %d", c.Service.RateLimitRPS)
@@ -78,7 +79,7 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("service.dedup_ttl must be non-negative, got %v", c.Service.DedupTTL)
 	}
 	if len(c.Cities) == 0 {
-		return fmt.Errorf("at least one city must be configured")
+		return errors.New("at least one city must be configured")
 	}
 	for i, city := range c.Cities {
 		if city.Name == "" {
@@ -129,8 +130,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Service.GroupType == "" {
 		cfg.Service.GroupType = "group--crime_news"
 	}
+	const hoursPerYear = 8760
 	if cfg.Service.DedupTTL == 0 {
-		cfg.Service.DedupTTL = 8760 * time.Hour // 1 year default
+		cfg.Service.DedupTTL = hoursPerYear * time.Hour // 1 year default
 	}
 
 	// Override with environment variables if present
