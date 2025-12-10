@@ -51,10 +51,10 @@ type DrupalArticle struct {
 			FieldURL map[string]any `json:"field_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
-			FieldGroup struct {
+			FieldGroup *struct {
 				Data []GroupReference `json:"data"`
-			} `json:"field_group"`
-		} `json:"relationships"`
+			} `json:"field_group,omitempty"`
+		} `json:"relationships,omitempty"`
 	} `json:"data"`
 }
 
@@ -183,10 +183,9 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			"uri": req.URL,
 		}
 	}
-	// field_group must be in relationships (not attributes)
+	// field_group is optional - only include if GroupID is provided
 	// Drupal JSON:API expects relationship format with type and id (UUID)
-	// The "cannot be referenced" error is likely a permissions issue, not a format issue
-	if req.GroupID != "" {
+	if req.GroupID != "" && req.GroupType != "" {
 		groupItem := GroupReference{
 			Type: req.GroupType,
 			ID:   req.GroupID, // Use UUID, not numeric ID
@@ -199,8 +198,10 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 			groupItem.Meta.DrupalInternalTargetID = 1
 		}
 
-		drupalArticle.Data.Relationships.FieldGroup.Data = []GroupReference{
-			groupItem,
+		drupalArticle.Data.Relationships.FieldGroup = &struct {
+			Data []GroupReference `json:"data"`
+		}{
+			Data: []GroupReference{groupItem},
 		}
 	}
 

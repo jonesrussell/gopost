@@ -85,9 +85,7 @@ func (c *Config) Validate() error {
 		if city.Name == "" {
 			return fmt.Errorf("cities[%d].name is required", i)
 		}
-		if city.GroupID == "" {
-			return fmt.Errorf("cities[%d].group_id is required", i)
-		}
+		// group_id is optional - articles can be posted without a group
 	}
 	return nil
 }
