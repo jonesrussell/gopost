@@ -434,6 +434,31 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 		// Post to Drupal (with timeout)
 		postCtx, postCancel := context.WithTimeout(ctx, drupalPostTimeout)
 		postStartTime := time.Now()
+		// Derive OG fields from canonical fields if not present (DRY principle)
+		// After crawler refactor, OG fields are no longer stored in ES, derive from source fields
+		ogTitle := article.OGTitle
+		if ogTitle == "" {
+			ogTitle = article.Title
+		}
+		ogDescription := article.OGDescription
+		if ogDescription == "" {
+			// Prefer description, fallback to intro
+			if article.Description != "" {
+				ogDescription = article.Description
+			} else {
+				ogDescription = article.Intro
+			}
+		}
+		ogURL := article.OGURL
+		if ogURL == "" {
+			// Prefer canonical_url, fallback to source
+			if article.URL != "" {
+				ogURL = article.URL
+			} else {
+				ogURL = article.Source
+			}
+		}
+
 		postErr := s.drupal.PostArticle(postCtx, drupal.ArticleRequest{
 			Title:         article.Title,
 			Body:          article.Content,
@@ -444,15 +469,16 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 			ExternalID:    article.ID,
 			Intro:         article.Intro,
 			Description:   article.Description,
-			OGTitle:       article.OGTitle,
-			OGDescription: article.OGDescription,
-			OGImage:       article.OGImage,
-			OGURL:         article.OGURL,
+			OGTitle:       ogTitle,
+			OGDescription: ogDescription,
+			OGImage:       article.OGImage, // og_image is unique, not duplicated
+			OGURL:         ogURL,
 			WordCount:     article.WordCount,
 			Category:      article.Category,
 			Section:       article.Section,
 			Keywords:      article.Keywords,
 			CanonicalURL:  article.URL, // canonical_url is the same as URL in our case
+			PublishedDate: article.PublishedAt,
 		})
 		postCancel()
 		if postErr != nil {

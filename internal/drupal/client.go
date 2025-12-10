@@ -44,6 +44,7 @@ type ArticleRequest struct {
 	Section       string
 	Keywords      []string
 	CanonicalURL  string
+	PublishedDate time.Time
 }
 
 type GroupReference struct {
@@ -73,6 +74,7 @@ type DrupalArticle struct {
 			FieldSection       string         `json:"field_section,omitempty"`
 			FieldKeywords      string         `json:"field_keywords,omitempty"`
 			FieldCanonicalURL  string         `json:"field_canonical_url,omitempty"`
+			FieldPublishedDate string         `json:"field_published_date,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup *struct {
@@ -249,6 +251,11 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	}
 	if req.CanonicalURL != "" {
 		drupalArticle.Data.Attributes.FieldCanonicalURL = req.CanonicalURL
+	}
+	// field_published_date - convert time.Time to ISO8601 format
+	if !req.PublishedDate.IsZero() {
+		// Drupal expects ISO8601 format (e.g., "2025-12-09T00:00:00Z")
+		drupalArticle.Data.Attributes.FieldPublishedDate = req.PublishedDate.Format(time.RFC3339)
 	}
 	// field_group is optional - only include if GroupID is provided
 	// Drupal JSON:API expects relationship format with type and id (UUID)
