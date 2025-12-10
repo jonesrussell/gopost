@@ -435,7 +435,8 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 		postCtx, postCancel := context.WithTimeout(ctx, drupalPostTimeout)
 		postStartTime := time.Now()
 		// Derive OG fields from canonical fields if not present (DRY principle)
-		// After crawler refactor, OG fields are no longer stored in ES, derive from source fields
+		// After crawler refactor: OG fields are only stored in ES if they differ from canonical values.
+		// If present in ES, use them; otherwise derive from canonical fields.
 		ogTitle := article.OGTitle
 		if ogTitle == "" {
 			ogTitle = article.Title
