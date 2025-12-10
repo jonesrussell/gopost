@@ -213,4 +213,3 @@ func ExampleLogger_structuredLogging() {
 	// log.Info("Article abc123 titled 'Breaking News' posted to sudbury")
 	// Output:
 }
-

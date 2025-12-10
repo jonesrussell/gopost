@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"os"
 	"os/signal"
@@ -47,9 +48,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() {
-		if err := appLogger.Sync(); err != nil {
+		if syncErr := appLogger.Sync(); syncErr != nil {
 			// Can't log this error since logger might be closed
-			_ = err
+			_ = syncErr
 		}
 	}()
 
@@ -65,6 +66,7 @@ func main() {
 		appLogger.Error("Failed to create integration service",
 			logger.Error(err),
 		)
+		_ = appLogger.Sync()
 		os.Exit(1)
 	}
 
@@ -88,10 +90,11 @@ func main() {
 		logger.Bool("debug", cfg.Debug),
 	)
 
-	if err := service.Run(ctx); err != nil && err != context.Canceled {
+	if runErr := service.Run(ctx); runErr != nil && !errors.Is(runErr, context.Canceled) {
 		appLogger.Error("Service error",
-			logger.Error(err),
+			logger.Error(runErr),
 		)
+		_ = appLogger.Sync()
 		os.Exit(1)
 	}
 

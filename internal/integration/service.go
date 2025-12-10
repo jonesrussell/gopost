@@ -18,6 +18,22 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Elasticsearch field name constants
+const (
+	ESFieldPublishedDate = "published_date"
+	ESFieldBody          = "body"
+	ESFieldCanonicalURL  = "canonical_url"
+	ESFieldTitle         = "title"
+	ESFieldSource        = "source"
+)
+
+// Timeout constants for external operations
+const (
+	esQueryTimeout   = 30 * time.Second
+	drupalPostTimeout = 30 * time.Second
+	redisTimeout      = 5 * time.Second
+)
+
 type Service struct {
 	esClient    *elasticsearch.Client
 	drupal      *drupal.Client
@@ -64,7 +80,7 @@ func NewService(cfg *config.Config, log logger.Logger) (*Service, error) {
 		return nil, fmt.Errorf("redis connection: %w", err)
 	}
 
-	dedupTracker := dedup.NewTracker(redisClient, log)
+	dedupTracker := dedup.NewTracker(redisClient, cfg.Service.DedupTTL, log)
 
 	// Initialize rate limiter
 	limiter := rate.NewLimiter(rate.Limit(cfg.Service.RateLimitRPS), cfg.Service.RateLimitRPS)
@@ -86,22 +102,22 @@ func NewService(cfg *config.Config, log logger.Logger) (*Service, error) {
 
 type Article struct {
 	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Content     string    `json:"body"`           // Elasticsearch uses "body" not "content"
-	URL         string    `json:"canonical_url"`  // Elasticsearch uses "canonical_url" not "url"
-	PublishedAt time.Time `json:"published_date"` // Elasticsearch uses "published_date" not "published_at"
-	Source      string    `json:"source"`
+	Title       string    `json:"title"`          // Maps to ESFieldTitle
+	Content     string    `json:"body"`           // Maps to ESFieldBody
+	URL         string    `json:"canonical_url"`  // Maps to ESFieldCanonicalURL
+	PublishedAt time.Time `json:"published_date"` // Maps to ESFieldPublishedDate
+	Source      string    `json:"source"`         // Maps to ESFieldSource
 }
 
 func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConfig) ([]Article, error) {
 	startTime := time.Now()
 
 	// Build Elasticsearch query
-	mustClauses := []map[string]interface{}{
+	mustClauses := []map[string]any{
 		{
-			"multi_match": map[string]interface{}{
+			"multi_match": map[string]any{
 				"query":    strings.Join(s.config.Service.CrimeKeywords, " "),
-				"fields":   []string{"title^2", "body"}, // Use "body" instead of "content"
+				"fields":   []string{ESFieldTitle + "^2", ESFieldBody},
 				"type":     "best_fields",
 				"operator": "or",
 			},
@@ -118,10 +134,10 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			logger.Int("lookback_hours", s.config.Service.LookbackHours),
 		)
 
-		mustClauses = append([]map[string]interface{}{
+		mustClauses = append([]map[string]any{
 			{
-				"range": map[string]interface{}{
-					"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
+				"range": map[string]any{
+					ESFieldPublishedDate: map[string]any{
 						"gte": lastCheckStr,
 					},
 				},
@@ -134,16 +150,16 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		)
 	}
 
-	query := map[string]interface{}{
-		"query": map[string]interface{}{
-			"bool": map[string]interface{}{
+	query := map[string]any{
+		"query": map[string]any{
+			"bool": map[string]any{
 				"must": mustClauses,
 			},
 		},
 		"size": 100,
-		"sort": []map[string]interface{}{
+		"sort": []map[string]any{
 			{
-				"published_date": map[string]interface{}{ // Use "published_date" instead of "published_at"
+				ESFieldPublishedDate: map[string]any{
 					"order": "desc",
 				},
 			},
@@ -169,9 +185,13 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 		logger.String("city", cityCfg.Name),
 	)
 
+	// Create context with timeout for Elasticsearch query
+	queryCtx, queryCancel := context.WithTimeout(ctx, esQueryTimeout)
+	defer queryCancel()
+
 	queryStartTime := time.Now()
 	res, err := s.esClient.Search(
-		s.esClient.Search.WithContext(ctx),
+		s.esClient.Search.WithContext(queryCtx),
 		s.esClient.Search.WithIndex(index),
 		s.esClient.Search.WithBody(&buf),
 		s.esClient.Search.WithTrackTotalHits(true),
@@ -197,13 +217,13 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 	)
 
 	if res.IsError() {
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+		var e map[string]any
+		if decodeErr := json.NewDecoder(res.Body).Decode(&e); decodeErr != nil {
 			s.logger.Error("Failed to decode Elasticsearch error response",
 				logger.String("index_name", index),
 				logger.String("city", cityCfg.Name),
 				logger.String("status", res.Status()),
-				logger.Error(err),
+				logger.Error(decodeErr),
 			)
 			return nil, fmt.Errorf("elasticsearch error response: %s", res.Status())
 		}
@@ -258,9 +278,9 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 			logger.String("city", cityCfg.Name),
 			logger.String("index_name", index),
 		)
-		testQuery := map[string]interface{}{
-			"query": map[string]interface{}{
-				"match_all": map[string]interface{}{},
+		testQuery := map[string]any{
+			"query": map[string]any{
+				"match_all": map[string]any{},
 			},
 			"size": 1,
 		}
@@ -281,7 +301,7 @@ func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConf
 								Value int `json:"value"`
 							} `json:"total"`
 							Hits []struct {
-								Source map[string]interface{} `json:"_source"`
+								Source map[string]any `json:"_source"`
 							} `json:"hits"`
 						} `json:"hits"`
 					}
@@ -359,10 +379,12 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 			continue
 		}
 
-		// Check if already posted
+		// Check if already posted (with timeout)
+		dedupCtx, dedupCancel := context.WithTimeout(ctx, redisTimeout)
 		dedupStartTime := time.Now()
-		alreadyPosted := s.dedup.HasPosted(ctx, article.ID)
+		alreadyPosted := s.dedup.HasPosted(dedupCtx, article.ID)
 		dedupDuration := time.Since(dedupStartTime)
+		dedupCancel()
 
 		s.logger.Debug("Deduplication check",
 			logger.String("article_id", article.ID),
@@ -399,16 +421,19 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 			logger.Duration("rate_limit_wait_duration", rateLimitDuration),
 		)
 
-		// Post to Drupal
+		// Post to Drupal (with timeout)
+		postCtx, postCancel := context.WithTimeout(ctx, drupalPostTimeout)
 		postStartTime := time.Now()
-		if err := s.drupal.PostArticle(ctx, drupal.ArticleRequest{
+		postErr := s.drupal.PostArticle(postCtx, drupal.ArticleRequest{
 			Title:       article.Title,
 			Body:        article.Content,
 			URL:         article.URL,
 			GroupID:     cityCfg.GroupID,
 			GroupType:   s.config.Service.GroupType,
 			ContentType: s.config.Service.ContentType,
-		}); err != nil {
+		})
+		postCancel()
+		if postErr != nil {
 			postDuration := time.Since(postStartTime)
 			articleDuration := time.Since(articleStartTime)
 			s.logger.Error("Error posting article",
@@ -418,22 +443,25 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 				logger.String("url", article.URL),
 				logger.Duration("post_duration", postDuration),
 				logger.Duration("article_processing_duration", articleDuration),
-				logger.Error(err),
+				logger.Error(postErr),
 			)
 			errors++
 			continue
 		}
 		postDuration := time.Since(postStartTime)
 
-		// Mark as posted
+		// Mark as posted (with timeout)
+		markCtx, markCancel := context.WithTimeout(ctx, redisTimeout)
 		markStartTime := time.Now()
-		if err := s.dedup.MarkPosted(ctx, article.ID); err != nil {
+		markErr := s.dedup.MarkPosted(markCtx, article.ID)
+		markCancel()
+		if markErr != nil {
 			markDuration := time.Since(markStartTime)
 			s.logger.Warn("Failed to mark article as posted",
 				logger.String("article_id", article.ID),
 				logger.String("city", cityCfg.Name),
 				logger.Duration("mark_duration", markDuration),
-				logger.Error(err),
+				logger.Error(markErr),
 			)
 		} else {
 			markDuration := time.Since(markStartTime)

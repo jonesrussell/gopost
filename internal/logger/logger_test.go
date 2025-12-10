@@ -33,7 +33,7 @@ func TestNewLogger(t *testing.T) {
 
 			// Test that logger can be used
 			log.Info("test message")
-			
+
 			// Test Sync (errors are acceptable in test environments)
 			_ = log.Sync()
 		})
@@ -120,7 +120,7 @@ func TestLoggerStructuredFields(t *testing.T) {
 		Time("time_field", time.Now()),
 		Error(errors.New("test error")),
 		NamedError("custom_error", errors.New("custom")),
-		Any("any_field", map[string]interface{}{"key": "value"}),
+		Any("any_field", map[string]any{"key": "value"}),
 		Strings("strings_field", []string{"a", "b", "c"}),
 		Ints("ints_field", []int{1, 2, 3}),
 	)
@@ -222,7 +222,7 @@ func TestLoggerConcurrent(t *testing.T) {
 
 	// Test concurrent logging
 	done := make(chan bool, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		go func(id int) {
 			log.Info("concurrent message",
 				Int("goroutine_id", id),
@@ -232,7 +232,7 @@ func TestLoggerConcurrent(t *testing.T) {
 	}
 
 	// Wait for all goroutines
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		<-done
 	}
 }
@@ -286,4 +286,3 @@ func TestLoggerProductionVsDevelopment(t *testing.T) {
 	devLog.Debug("dev debug")
 	prodLog.Debug("prod debug")
 }
-

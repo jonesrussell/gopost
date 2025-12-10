@@ -9,7 +9,7 @@ import (
 
 // String creates a field with a string value.
 // Example: logger.Info("user logged in", String("username", "john"))
-func String(key string, val string) Field {
+func String(key, val string) Field {
 	return zap.String(key, val)
 }
 
@@ -82,7 +82,7 @@ func NamedError(key string, err error) Field {
 // The value is serialized using reflection, which may be slower than typed fields.
 // Prefer typed field constructors (String, Int, etc.) when possible.
 // Example: logger.Info("custom value", Any("data", myStruct))
-func Any(key string, val interface{}) Field {
+func Any(key string, val any) Field {
 	return zap.Any(key, val)
 }
 
@@ -108,7 +108,7 @@ func Object(key string, val zapcore.ObjectMarshaler) Field {
 // Reflect creates a field that uses reflection to serialize the value.
 // This is similar to Any but provides more control over serialization.
 // Example: logger.Info("complex object", Reflect("data", myStruct))
-func Reflect(key string, val interface{}) Field {
+func Reflect(key string, val any) Field {
 	return zap.Reflect(key, val)
 }
 
@@ -139,4 +139,3 @@ func ByteString(key string, val []byte) Field {
 func Binary(key string, val []byte) Field {
 	return zap.Binary(key, val)
 }
-

@@ -45,12 +45,50 @@ type ServiceConfig struct {
 	CrimeKeywords []string      `yaml:"crime_keywords"`
 	ContentType   string        `yaml:"content_type"`
 	GroupType     string        `yaml:"group_type"`
+	DedupTTL      time.Duration `yaml:"dedup_ttl"` // Default: 8760h (1 year)
 }
 
 type CityConfig struct {
 	Name    string `yaml:"name"`
 	Index   string `yaml:"index"`
 	GroupID string `yaml:"group_id"`
+}
+
+// Validate checks if the configuration is valid and returns an error if not.
+func (c *Config) Validate() error {
+	if c.Elasticsearch.URL == "" {
+		return fmt.Errorf("elasticsearch.url is required")
+	}
+	if c.Drupal.URL == "" {
+		return fmt.Errorf("drupal.url is required")
+	}
+	if c.Drupal.Token == "" {
+		return fmt.Errorf("drupal.token is required")
+	}
+	if c.Redis.URL == "" {
+		return fmt.Errorf("redis.url is required")
+	}
+	if c.Service.RateLimitRPS <= 0 {
+		return fmt.Errorf("service.rate_limit_rps must be positive, got %d", c.Service.RateLimitRPS)
+	}
+	if c.Service.CheckInterval <= 0 {
+		return fmt.Errorf("service.check_interval must be positive, got %v", c.Service.CheckInterval)
+	}
+	if c.Service.DedupTTL < 0 {
+		return fmt.Errorf("service.dedup_ttl must be non-negative, got %v", c.Service.DedupTTL)
+	}
+	if len(c.Cities) == 0 {
+		return fmt.Errorf("at least one city must be configured")
+	}
+	for i, city := range c.Cities {
+		if city.Name == "" {
+			return fmt.Errorf("cities[%d].name is required", i)
+		}
+		if city.GroupID == "" {
+			return fmt.Errorf("cities[%d].group_id is required", i)
+		}
+	}
+	return nil
 }
 
 func Load(path string) (*Config, error) {
@@ -91,6 +129,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Service.GroupType == "" {
 		cfg.Service.GroupType = "group--crime_news"
 	}
+	if cfg.Service.DedupTTL == 0 {
+		cfg.Service.DedupTTL = 8760 * time.Hour // 1 year default
+	}
 
 	// Override with environment variables if present
 	if esURL := os.Getenv("ES_URL"); esURL != "" {
@@ -114,6 +155,11 @@ func Load(path string) (*Config, error) {
 	// Parse APP_DEBUG environment variable
 	if appDebug := os.Getenv("APP_DEBUG"); appDebug != "" {
 		cfg.Debug = parseBool(appDebug)
+	}
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
 	return &cfg, nil
