@@ -74,6 +74,8 @@ tasks:
   lint:
     desc: Run golangci-lint (if installed)
     cmds:
+      - task: fmt
+      - task: vet
       - golangci-lint run
 
   check:
