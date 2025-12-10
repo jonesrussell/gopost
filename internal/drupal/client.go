@@ -47,7 +47,7 @@ type DrupalArticle struct {
 		Type       string `json:"type"`
 		Attributes struct {
 			Title    string         `json:"title"`
-			Body     string         `json:"body,omitempty"`
+			Body     map[string]any `json:"body,omitempty"`
 			FieldURL map[string]any `json:"field_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
@@ -175,7 +175,11 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 	drupalArticle.Data.Type = req.ContentType
 	drupalArticle.Data.Attributes.Title = req.Title
 	if req.Body != "" {
-		drupalArticle.Data.Attributes.Body = req.Body
+		// Drupal body field requires value and format structure
+		drupalArticle.Data.Attributes.Body = map[string]any{
+			"value":  req.Body,
+			"format": "full_html", // Use full_html format to preserve HTML content
+		}
 	}
 	// field_url is required - send as URI field in attributes
 	if req.URL != "" {

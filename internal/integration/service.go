@@ -574,3 +574,8 @@ func (s *Service) getLastCheckTS() time.Time {
 	defer s.mu.RUnlock()
 	return s.lastCheckTS
 }
+
+// FlushCache flushes the Redis deduplication cache
+func (s *Service) FlushCache(ctx context.Context) error {
+	return s.dedup.FlushAll(ctx)
+}

@@ -27,6 +27,12 @@ tasks:
     cmds:
       - go run {{.MAIN_PATH}} -config {{.CONFIG_FILE}}
 
+  flush-cache:
+    desc: Flush Redis deduplication cache
+    deps: [deps]
+    cmds:
+      - go run {{.MAIN_PATH}} -config {{.CONFIG_FILE}} --flush-cache
+
   test:
     desc: Run all tests
     deps: [deps]

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gopost/integration/internal/config"
 	"github.com/gopost/integration/internal/integration"
@@ -20,7 +21,9 @@ var (
 
 func main() {
 	var configPath string
+	var flushCache bool
 	flag.StringVar(&configPath, "config", "config.yml", "Path to configuration file")
+	flag.BoolVar(&flushCache, "flush-cache", false, "Flush Redis deduplication cache and exit")
 	flag.Parse()
 
 	// Load configuration first (needed to determine debug mode)
@@ -68,6 +71,24 @@ func main() {
 		)
 		_ = appLogger.Sync()
 		os.Exit(1)
+	}
+
+	// Handle flush-cache flag
+	if flushCache {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		appLogger.Info("Flushing Redis deduplication cache")
+		if flushErr := service.FlushCache(ctx); flushErr != nil {
+			appLogger.Error("Failed to flush cache",
+				logger.Error(flushErr),
+			)
+			_ = appLogger.Sync()
+			os.Exit(1)
+		}
+		appLogger.Info("Cache flushed successfully")
+		_ = appLogger.Sync()
+		os.Exit(0)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

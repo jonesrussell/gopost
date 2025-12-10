@@ -115,3 +115,51 @@ func (t *Tracker) Clear(ctx context.Context, articleID string) error {
 
 	return nil
 }
+
+// FlushAll removes all posted article keys from Redis
+// This will clear the entire deduplication cache
+func (t *Tracker) FlushAll(ctx context.Context) error {
+	t.logger.Info("Flushing all posted article keys from Redis cache")
+
+	// Use SCAN to find all keys matching the pattern "posted:article:*"
+	// This is safer than FLUSHDB which would clear the entire Redis database
+	pattern := "posted:article:*"
+	var cursor uint64
+	var deletedCount int
+
+	for {
+		var keys []string
+		var err error
+		keys, cursor, err = t.client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			t.logger.Error("Redis error scanning for keys",
+				logger.String("pattern", pattern),
+				logger.Error(err),
+			)
+			return fmt.Errorf("scan keys: %w", err)
+		}
+
+		if len(keys) > 0 {
+			deleted, err := t.client.Del(ctx, keys...).Result()
+			if err != nil {
+				t.logger.Error("Redis error deleting keys",
+					logger.Int("key_count", len(keys)),
+					logger.Error(err),
+				)
+				return fmt.Errorf("delete keys: %w", err)
+			}
+			deletedCount += int(deleted)
+		}
+
+		if cursor == 0 {
+			break
+		}
+	}
+
+	t.logger.Info("Flushed Redis cache",
+		logger.Int("keys_deleted", deletedCount),
+		logger.String("pattern", pattern),
+	)
+
+	return nil
+}
