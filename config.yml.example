@@ -44,6 +44,15 @@ service:
   content_type: "node--article"  # Drupal content type
   group_type: "group--crime_news"  # Drupal group type
 
+# Sources service configuration (optional)
+# When enabled, cities are fetched from the sources service API instead of the cities list below
+sources:
+  url: "http://localhost:8080"  # Sources service API URL
+  timeout: "5s"                 # Request timeout
+  enabled: false                # Set to true to fetch cities from sources service
+
+# Cities configuration (used when sources.enabled is false)
+# If sources.enabled is true, cities are fetched from the sources service instead
 cities:
   - name: "sudbury_com"
     index: "sudbury_com_articles"  # Optional, defaults to {name}_articles

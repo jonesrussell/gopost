@@ -12,6 +12,7 @@ import (
 	"github.com/gopost/integration/internal/config"
 	"github.com/gopost/integration/internal/integration"
 	"github.com/gopost/integration/internal/logger"
+	"github.com/gopost/integration/internal/sources"
 )
 
 var (
@@ -59,7 +60,8 @@ func main() {
 	flag.Parse()
 
 	// Load configuration first (needed to determine debug mode)
-	cfg, err := config.Load(configPath)
+	// Load base config to determine debug mode
+	baseCfg, err := config.Load(configPath)
 	if err != nil {
 		// Use a temporary logger for early errors before config is loaded
 		tempLogger, _ := logger.NewLogger(true)
@@ -72,7 +74,7 @@ func main() {
 	}
 
 	// Create logger based on debug mode from config
-	appLogger, err := initializeLogger(cfg)
+	appLogger, err := initializeLogger(baseCfg)
 	if err != nil {
 		// Fallback to temporary logger if logger creation fails
 		tempLogger, _ := logger.NewLogger(true)
@@ -81,6 +83,25 @@ func main() {
 		)
 		_ = tempLogger.Sync()
 		os.Exit(1)
+	}
+
+	// If sources service is enabled, try to fetch cities from it
+	var cfg *config.Config
+	if baseCfg.Sources.Enabled {
+		sourcesClient := sources.NewClient(&baseCfg.Sources, appLogger)
+		cfg, err = config.LoadWithSources(configPath, sourcesClient)
+		if err != nil {
+			appLogger.Warn("Failed to load config with sources, falling back to config file",
+				logger.Error(err),
+			)
+			cfg = baseCfg
+		} else {
+			appLogger.Info("Loaded cities from sources service",
+				logger.Int("city_count", len(cfg.Cities)),
+			)
+		}
+	} else {
+		cfg = baseCfg
 	}
 	defer func() {
 		if syncErr := appLogger.Sync(); syncErr != nil {

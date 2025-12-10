@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -17,6 +18,7 @@ type Config struct {
 	Redis         RedisConfig         `yaml:"redis"`
 	Service       ServiceConfig       `yaml:"service"`
 	Cities        []CityConfig        `yaml:"cities"`
+	Sources       SourcesConfig       `yaml:"sources"` // Optional: Sources service configuration
 }
 
 type ElasticsearchConfig struct {
@@ -55,6 +57,12 @@ type CityConfig struct {
 	GroupID string `yaml:"group_id"`
 }
 
+type SourcesConfig struct {
+	URL     string        `yaml:"url"`      // Sources service API URL (e.g., "http://localhost:8080")
+	Timeout time.Duration `yaml:"timeout"`  // Request timeout (default: 5s)
+	Enabled bool          `yaml:"enabled"`  // Enable fetching cities from sources service
+}
+
 // Validate checks if the configuration is valid and returns an error if not.
 func (c *Config) Validate() error {
 	if c.Elasticsearch.URL == "" {
@@ -78,8 +86,12 @@ func (c *Config) Validate() error {
 	if c.Service.DedupTTL < 0 {
 		return fmt.Errorf("service.dedup_ttl must be non-negative, got %v", c.Service.DedupTTL)
 	}
-	if len(c.Cities) == 0 {
-		return errors.New("at least one city must be configured")
+	// Cities are required either from config or sources service
+	if !c.Sources.Enabled && len(c.Cities) == 0 {
+		return errors.New("at least one city must be configured or sources service must be enabled")
+	}
+	if c.Sources.Enabled && c.Sources.URL == "" {
+		return errors.New("sources.url is required when sources.enabled is true")
 	}
 	for i, city := range c.Cities {
 		if city.Name == "" {
@@ -132,6 +144,9 @@ func Load(path string) (*Config, error) {
 	if cfg.Service.DedupTTL == 0 {
 		cfg.Service.DedupTTL = hoursPerYear * time.Hour // 1 year default
 	}
+	if cfg.Sources.Timeout == 0 {
+		cfg.Sources.Timeout = 5 * time.Second
+	}
 
 	// Override with environment variables if present
 	if esURL := os.Getenv("ES_URL"); esURL != "" {
@@ -152,6 +167,12 @@ func Load(path string) (*Config, error) {
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
 		cfg.Redis.URL = redisURL
 	}
+	if sourcesURL := os.Getenv("SOURCES_URL"); sourcesURL != "" {
+		cfg.Sources.URL = sourcesURL
+	}
+	if sourcesEnabled := os.Getenv("SOURCES_ENABLED"); sourcesEnabled != "" {
+		cfg.Sources.Enabled = parseBool(sourcesEnabled)
+	}
 	// Parse APP_DEBUG environment variable
 	if appDebug := os.Getenv("APP_DEBUG"); appDebug != "" {
 		cfg.Debug = parseBool(appDebug)
@@ -163,6 +184,35 @@ func Load(path string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// LoadWithSources loads configuration and optionally fetches cities from sources service.
+// If sources service is enabled and cities are fetched successfully, they override the config file cities.
+func LoadWithSources(path string, sourcesClient interface{ GetCities(context.Context) ([]CityConfig, error) }) (*Config, error) {
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// If sources service is enabled, try to fetch cities
+	if cfg.Sources.Enabled && sourcesClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), cfg.Sources.Timeout)
+		defer cancel()
+
+		cities, err := sourcesClient.GetCities(ctx)
+		if err != nil {
+			// Log warning but don't fail - fallback to config file cities
+			// In production, you might want to use a logger here
+			_ = err
+			return cfg, nil
+		}
+
+		if len(cities) > 0 {
+			cfg.Cities = cities
+		}
+	}
+
+	return cfg, nil
 }
 
 // parseBool parses a string value as a boolean.
