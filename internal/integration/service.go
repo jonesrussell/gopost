@@ -101,12 +101,22 @@ func NewService(cfg *config.Config, log logger.Logger) (*Service, error) {
 }
 
 type Article struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`          // Maps to ESFieldTitle
-	Content     string    `json:"body"`           // Maps to ESFieldBody
-	URL         string    `json:"canonical_url"`  // Maps to ESFieldCanonicalURL
-	PublishedAt time.Time `json:"published_date"` // Maps to ESFieldPublishedDate
-	Source      string    `json:"source"`         // Maps to ESFieldSource
+	ID            string    `json:"id"`
+	Title         string    `json:"title"`          // Maps to ESFieldTitle
+	Content       string    `json:"body"`           // Maps to ESFieldBody
+	URL           string    `json:"canonical_url"`  // Maps to ESFieldCanonicalURL
+	PublishedAt   time.Time `json:"published_date"` // Maps to ESFieldPublishedDate
+	Source        string    `json:"source"`         // Maps to ESFieldSource
+	Intro         string    `json:"intro,omitempty"`
+	Description   string    `json:"description,omitempty"`
+	OGTitle       string    `json:"og_title,omitempty"`
+	OGDescription string    `json:"og_description,omitempty"`
+	OGImage       string    `json:"og_image,omitempty"`
+	OGURL         string    `json:"og_url,omitempty"`
+	WordCount     int       `json:"word_count,omitempty"`
+	Category      string    `json:"category,omitempty"`
+	Section       string    `json:"section,omitempty"`
+	Keywords      []string  `json:"keywords,omitempty"`
 }
 
 func (s *Service) FindCrimeArticles(ctx context.Context, cityCfg config.CityConfig) ([]Article, error) {
@@ -425,12 +435,24 @@ func (s *Service) ProcessCity(ctx context.Context, cityCfg config.CityConfig) er
 		postCtx, postCancel := context.WithTimeout(ctx, drupalPostTimeout)
 		postStartTime := time.Now()
 		postErr := s.drupal.PostArticle(postCtx, drupal.ArticleRequest{
-			Title:       article.Title,
-			Body:        article.Content,
-			URL:         article.URL,
-			GroupID:     cityCfg.GroupID,
-			GroupType:   s.config.Service.GroupType,
-			ContentType: s.config.Service.ContentType,
+			Title:         article.Title,
+			Body:          article.Content,
+			URL:           article.URL,
+			GroupID:       cityCfg.GroupID,
+			GroupType:     s.config.Service.GroupType,
+			ContentType:   s.config.Service.ContentType,
+			ExternalID:    article.ID,
+			Intro:         article.Intro,
+			Description:   article.Description,
+			OGTitle:       article.OGTitle,
+			OGDescription: article.OGDescription,
+			OGImage:       article.OGImage,
+			OGURL:         article.OGURL,
+			WordCount:     article.WordCount,
+			Category:      article.Category,
+			Section:       article.Section,
+			Keywords:      article.Keywords,
+			CanonicalURL:  article.URL, // canonical_url is the same as URL in our case
 		})
 		postCancel()
 		if postErr != nil {

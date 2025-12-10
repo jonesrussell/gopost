@@ -26,12 +26,24 @@ type Client struct {
 }
 
 type ArticleRequest struct {
-	Title       string
-	Body        string
-	URL         string
-	GroupID     string
-	GroupType   string
-	ContentType string
+	Title         string
+	Body          string
+	URL           string
+	GroupID       string
+	GroupType     string
+	ContentType   string
+	ExternalID    string
+	Intro         string
+	Description   string
+	OGTitle       string
+	OGDescription string
+	OGImage       string
+	OGURL         string
+	WordCount     int
+	Category      string
+	Section       string
+	Keywords      []string
+	CanonicalURL  string
 }
 
 type GroupReference struct {
@@ -46,9 +58,21 @@ type DrupalArticle struct {
 	Data struct {
 		Type       string `json:"type"`
 		Attributes struct {
-			Title    string         `json:"title"`
-			Body     map[string]any `json:"body,omitempty"`
-			FieldURL map[string]any `json:"field_url,omitempty"`
+			Title              string         `json:"title"`
+			Body               map[string]any `json:"body,omitempty"`
+			FieldURL           map[string]any `json:"field_url,omitempty"`
+			FieldExternalID    string         `json:"field_external_id,omitempty"`
+			FieldIntro         string         `json:"field_intro,omitempty"`
+			FieldDescription   string         `json:"field_description,omitempty"`
+			FieldOGTitle       string         `json:"field_og_title,omitempty"`
+			FieldOGDescription string         `json:"field_og_description,omitempty"`
+			FieldOGImage       string         `json:"field_og_image,omitempty"`
+			FieldOGURL         string         `json:"field_og_url,omitempty"`
+			FieldWordCount     string         `json:"field_word_count,omitempty"`
+			FieldCategory      string         `json:"field_category,omitempty"`
+			FieldSection       string         `json:"field_section,omitempty"`
+			FieldKeywords      string         `json:"field_keywords,omitempty"`
+			FieldCanonicalURL  string         `json:"field_canonical_url,omitempty"`
 		} `json:"attributes"`
 		Relationships struct {
 			FieldGroup *struct {
@@ -186,6 +210,45 @@ func (c *Client) PostArticle(ctx context.Context, req ArticleRequest) error {
 		drupalArticle.Data.Attributes.FieldURL = map[string]any{
 			"uri": req.URL,
 		}
+	}
+	// Map additional fields from Elasticsearch
+	if req.ExternalID != "" {
+		drupalArticle.Data.Attributes.FieldExternalID = req.ExternalID
+	}
+	if req.Intro != "" {
+		drupalArticle.Data.Attributes.FieldIntro = req.Intro
+	}
+	if req.Description != "" {
+		drupalArticle.Data.Attributes.FieldDescription = req.Description
+	}
+	if req.OGTitle != "" {
+		drupalArticle.Data.Attributes.FieldOGTitle = req.OGTitle
+	}
+	if req.OGDescription != "" {
+		drupalArticle.Data.Attributes.FieldOGDescription = req.OGDescription
+	}
+	if req.OGImage != "" {
+		drupalArticle.Data.Attributes.FieldOGImage = req.OGImage
+	}
+	if req.OGURL != "" {
+		drupalArticle.Data.Attributes.FieldOGURL = req.OGURL
+	}
+	if req.WordCount > 0 {
+		// Drupal may expect word_count as string, convert to string
+		drupalArticle.Data.Attributes.FieldWordCount = fmt.Sprintf("%d", req.WordCount)
+	}
+	if req.Category != "" {
+		drupalArticle.Data.Attributes.FieldCategory = req.Category
+	}
+	if req.Section != "" {
+		drupalArticle.Data.Attributes.FieldSection = req.Section
+	}
+	if len(req.Keywords) > 0 {
+		// Join keywords array into a single string (pipe-separated as shown in ES)
+		drupalArticle.Data.Attributes.FieldKeywords = strings.Join(req.Keywords, "|")
+	}
+	if req.CanonicalURL != "" {
+		drupalArticle.Data.Attributes.FieldCanonicalURL = req.CanonicalURL
 	}
 	// field_group is optional - only include if GroupID is provided
 	// Drupal JSON:API expects relationship format with type and id (UUID)
