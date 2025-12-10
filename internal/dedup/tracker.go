@@ -15,10 +15,10 @@ type Tracker struct {
 	logger logger.Logger
 }
 
-func NewTracker(client *redis.Client, log logger.Logger) *Tracker {
+func NewTracker(client *redis.Client, ttl time.Duration, log logger.Logger) *Tracker {
 	return &Tracker{
 		client: client,
-		ttl:    365 * 24 * time.Hour, // Keep for 1 year
+		ttl:    ttl,
 		logger: log,
 	}
 }
